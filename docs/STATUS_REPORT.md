@@ -152,20 +152,23 @@
 
 ## شواهد کنترل کیفیت
 
-نتایج زیر مربوط به آخرین اجرای ثبت‌شده در محیط توسعه در تاریخ این گزارش‌اند:
+نتایج زیر مربوط به آخرین اجرای ثبت‌شده در محیط توسعه در تاریخ این گزارش‌اند.
+Lighthouse با پروفایل رسمی Desktop Dense‑4G، سه اجرای مستقل و نتیجهٔ میانه
+برای Performance/LCP اجرا شده است؛ بیشترین CLS هر سه اجرا کنترل می‌شود:
 
 | کنترل | نتیجه |
 |---|---:|
 | بررسی نحوی JavaScript | ۶۷ فایل موفق |
 | تست‌های backend با `node:test` | ۱۰۱ از ۱۰۱ موفق |
 | سناریوهای مرورگر Playwright | ۱۳ از ۱۳ موفق، شامل فضای کاری ۱۶‌نما و گردش عمیق سرمایه/حاکمیت |
-| Lighthouse Performance | ۹۸ |
+| Lighthouse Performance | ۱۰۰ |
 | Lighthouse Accessibility | ۱۰۰ |
 | Lighthouse Best Practices | ۱۰۰ |
 | Lighthouse SEO | ۱۰۰ |
-| Cumulative Layout Shift | `0.0025` |
-| Largest Contentful Paint | `1969ms` |
-| حجم انتقال‌یافته در اجرای Lighthouse | `163829` بایت |
+| Cumulative Layout Shift (بیشینهٔ سه اجرا) | `0.0005` |
+| Largest Contentful Paint (میانهٔ سه اجرا) | `448ms` |
+| حجم انتقال‌یافته در اجرای Lighthouse (بیشینهٔ سه اجرا) | `165134` بایت |
+| حجم gzip اولیهٔ CSS/JS/font | `149905` بایت از سقف `150000` |
 | `npm audit` | صفر آسیب‌پذیری گزارش‌شده |
 
 این نتایج کیفیت همین revision را نشان می‌دهند و جایگزین load test، penetration

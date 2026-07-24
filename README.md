@@ -285,9 +285,10 @@ npm run audit:lighthouse
 حریم خصوصی، idempotency عملیات حساس، کنترل موجودی و طرفین انتقال، تغییر وضعیت
 پیشنهاد و مسیر کامل ثبت تا پذیرش را پوشش می‌دهند. تست مرورگر همچنین RTL،
 دسترس‌پذیری، baseline تصویری، پرتفوی چندپروژه‌ای و چیدمان responsive را بررسی
-می‌کند. ممیزی Lighthouse بودجهٔ Performance و Accessibility حداقل ۹۵ و CLS کمتر
-از ۰٫۱ را enforce می‌کند؛ در صورت پیدا نشدن خودکار Chrome می‌توانید مسیر آن را
-در `CHROME_PATH` بگذارید.
+می‌کند. ممیزی Lighthouse با پروفایل رسمی Desktop Dense‑4G و سه اجرای مستقل،
+بودجهٔ Performance، Accessibility، Best Practices و SEO حداقل ۹۵، میانهٔ LCP
+کمتر از ۲٫۵ ثانیه و بیشترین CLS کمتر از ۰٫۱ را enforce می‌کند؛ در صورت پیدا
+نشدن خودکار Chrome می‌توانید مسیر آن را در `CHROME_PATH` بگذارید.
 
 ## ساختار
 

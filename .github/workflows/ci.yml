@@ -52,6 +52,16 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
+      - name: Upload Playwright failure evidence
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: playwright-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            test-results/
+            playwright-report/
+          if-no-files-found: warn
+          retention-days: 7
 
   lighthouse:
     runs-on: ubuntu-latest
@@ -108,6 +118,16 @@ jobs:
             'HAMSAKHT_IMAGE=hamsakht:test' \
             "ADMIN_PASSWORD_HASH='$admin_hash'" > .env
           docker compose config --quiet
+          docker compose config --format json | node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            const model = JSON.parse(readFileSync(0, "utf8"));
+            const stopGracePeriod = model.services?.hamsakht?.stop_grace_period;
+            if (stopGracePeriod !== "25s") {
+              throw new Error(
+                `Compose stop_grace_period is ${JSON.stringify(stopGracePeriod)}; expected "25s".`,
+              );
+            }
+          '
           docker compose up --detach --no-build hamsakht
           container="$(docker compose ps --quiet hamsakht)"
           for attempt in {1..30}; do
@@ -122,7 +142,17 @@ jobs:
           done
           test "$(docker exec "$container" id -u)" != "0"
           test "$(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' "$container")" = "true"
-          test "$(docker inspect --format '{{.HostConfig.StopTimeout}}' "$container")" -ge "20"
+          docker inspect "$container" | node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            const [container] = JSON.parse(readFileSync(0, "utf8"));
+            const stopTimeout =
+              container?.Config?.StopTimeout ?? container?.HostConfig?.StopTimeout;
+            if (!Number.isInteger(stopTimeout) || stopTimeout < 20) {
+              throw new Error(
+                `Runtime stop timeout is ${JSON.stringify(stopTimeout)}; expected at least 20 seconds.`,
+              );
+            }
+          '
           test "$(
             docker inspect --format \
               '{{(index (index .NetworkSettings.Ports "3000/tcp") 0).HostIp}}' \
