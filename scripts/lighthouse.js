@@ -26,20 +26,51 @@ const server = createServer(application.handler);
 const chromeProfile = mkdtempSync(join(tmpdir(), 'hamkari-lighthouse-'));
 let chrome;
 
+class IncompleteLighthouseSampleError extends Error {}
+
 function median(values) {
   const sorted = [...values].sort((left, right) => left - right);
   return sorted[Math.floor(sorted.length / 2)];
 }
 
+function numericAudit(lhr, auditId) {
+  const audit = lhr.audits[auditId];
+  if (Number.isFinite(audit?.numericValue)) return audit.numericValue;
+  const reason = audit?.errorMessage || audit?.scoreDisplayMode || 'audit missing';
+  throw new IncompleteLighthouseSampleError(
+    `Lighthouse audit "${auditId}" did not produce a numeric value (${reason}).`,
+  );
+}
+
+function layoutShiftDiagnostics(lhr) {
+  const items = lhr.audits['layout-shifts']?.details?.items;
+  if (!Array.isArray(items)) return [];
+  return items.slice(0, 5).map(item => ({
+    score: item.score,
+    node: item.node?.selector || item.node?.snippet || item.node?.nodeLabel || null,
+    causes: item.subItems?.items?.map(cause => ({
+      cause: cause.cause,
+      value: cause.extra?.value || cause.extra?.selector || null,
+    })) || [],
+  }));
+}
+
 function summarize(lhr) {
+  const categoryScore = (categoryId) => {
+    const score = lhr.categories[categoryId]?.score;
+    if (Number.isFinite(score)) return Math.round(score * 100);
+    throw new IncompleteLighthouseSampleError(
+      `Lighthouse category "${categoryId}" did not produce a score.`,
+    );
+  };
   return {
-    performance: Math.round(lhr.categories.performance.score * 100),
-    accessibility: Math.round(lhr.categories.accessibility.score * 100),
-    bestPractices: Math.round(lhr.categories['best-practices'].score * 100),
-    seo: Math.round(lhr.categories.seo.score * 100),
-    cls: Number(lhr.audits['cumulative-layout-shift'].numericValue.toFixed(4)),
-    lcpMs: Math.round(lhr.audits['largest-contentful-paint'].numericValue),
-    transferredBytes: Math.round(lhr.audits['total-byte-weight'].numericValue),
+    performance: categoryScore('performance'),
+    accessibility: categoryScore('accessibility'),
+    bestPractices: categoryScore('best-practices'),
+    seo: categoryScore('seo'),
+    cls: Number(numericAudit(lhr, 'cumulative-layout-shift').toFixed(4)),
+    lcpMs: Math.round(numericAudit(lhr, 'largest-contentful-paint')),
+    transferredBytes: Math.round(numericAudit(lhr, 'total-byte-weight')),
   };
 }
 
@@ -94,7 +125,8 @@ try {
     userDataDir: chromeProfile,
   });
   const samples = [];
-  for (let index = 0; index < runCount; index += 1) {
+  const maximumAttempts = runCount + 2;
+  for (let attempt = 1; samples.length < runCount && attempt <= maximumAttempts; attempt += 1) {
     const result = await lighthouse(
       targetUrl,
       {
@@ -105,7 +137,26 @@ try {
       },
       desktopConfig,
     );
-    samples.push(summarize(result.lhr));
+    try {
+      const sample = summarize(result.lhr);
+      if (sample.cls >= 0.1) {
+        console.warn(
+          `High-CLS sample diagnostics: ${JSON.stringify(layoutShiftDiagnostics(result.lhr))}`,
+        );
+      }
+      samples.push(sample);
+    } catch (error) {
+      if (!(error instanceof IncompleteLighthouseSampleError)) throw error;
+      console.warn(
+        `${error.message} Discarding attempt ${attempt}/${maximumAttempts}.`,
+      );
+    }
+  }
+  if (samples.length !== runCount) {
+    throw new Error(
+      `Lighthouse produced ${samples.length}/${runCount} complete samples ` +
+      `after ${maximumAttempts} attempts.`,
+    );
   }
   const summary = aggregate(samples);
   process.stdout.write(`${JSON.stringify(summary)}\n`);

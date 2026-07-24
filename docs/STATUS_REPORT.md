@@ -165,9 +165,9 @@ Lighthouse با پروفایل رسمی Desktop Dense‑4G، سه اجرای م�
 | Lighthouse Accessibility | ۱۰۰ |
 | Lighthouse Best Practices | ۱۰۰ |
 | Lighthouse SEO | ۱۰۰ |
-| Cumulative Layout Shift (بیشینهٔ سه اجرا) | `0.0005` |
-| Largest Contentful Paint (میانهٔ سه اجرا) | `448ms` |
-| حجم انتقال‌یافته در اجرای Lighthouse (بیشینهٔ سه اجرا) | `165134` بایت |
+| Cumulative Layout Shift (بیشینهٔ سه اجرا) | `0` |
+| Largest Contentful Paint (میانهٔ سه اجرا) | `446ms` |
+| حجم انتقال‌یافته در اجرای Lighthouse (بیشینهٔ سه اجرا) | `165178` بایت |
 | حجم gzip اولیهٔ CSS/JS/font | `149905` بایت از سقف `150000` |
 | `npm audit` | صفر آسیب‌پذیری گزارش‌شده |
 
