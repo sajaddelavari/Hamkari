@@ -152,7 +152,9 @@
 
 ## شواهد کنترل کیفیت
 
-نتایج زیر مربوط به آخرین اجرای ثبت‌شده در محیط توسعه در تاریخ این گزارش‌اند.
+نتایج زیر مربوط به آخرین اجرای ثبت‌شدهٔ محلی و
+[GitHub Actions](https://github.com/sajaddelavari/Hamkari/actions/runs/30122804029)
+در تاریخ این گزارش‌اند.
 Lighthouse با پروفایل رسمی Desktop Dense‑4G، سه اجرای مستقل و نتیجهٔ میانه
 برای Performance/LCP اجرا شده است؛ بیشترین CLS هر سه اجرا کنترل می‌شود:
 
@@ -161,12 +163,13 @@ Lighthouse با پروفایل رسمی Desktop Dense‑4G، سه اجرای م�
 | بررسی نحوی JavaScript | ۶۷ فایل موفق |
 | تست‌های backend با `node:test` | ۱۰۱ از ۱۰۱ موفق |
 | سناریوهای مرورگر Playwright | ۱۳ از ۱۳ موفق، شامل فضای کاری ۱۶‌نما و گردش عمیق سرمایه/حاکمیت |
+| GitHub Actions | ۴ از ۴ job موفق: backend، browser، Lighthouse و container |
 | Lighthouse Performance | ۱۰۰ |
 | Lighthouse Accessibility | ۱۰۰ |
 | Lighthouse Best Practices | ۱۰۰ |
 | Lighthouse SEO | ۱۰۰ |
 | Cumulative Layout Shift (بیشینهٔ سه اجرا) | `0` |
-| Largest Contentful Paint (میانهٔ سه اجرا) | `446ms` |
+| Largest Contentful Paint (میانهٔ سه اجرا) | `450ms` |
 | حجم انتقال‌یافته در اجرای Lighthouse (بیشینهٔ سه اجرا) | `165178` بایت |
 | حجم gzip اولیهٔ CSS/JS/font | `149905` بایت از سقف `150000` |
 | `npm audit` | صفر آسیب‌پذیری گزارش‌شده |
@@ -179,6 +182,9 @@ test مستقل، ممیزی حقوقی، یا آزمون disaster recovery رو
 ### انجام‌شده
 
 - فایل Docker، Docker Compose، healthcheck، volumeها و کاربر non-root وجود دارد.
+- job کانتینر در GitHub Actions، build و اجرای image، کاربر non-root،
+  filesystem فقط‌خواندنی، graceful timeout، اتصال loopback، ماندگاری داده و
+  چرخهٔ واقعی backup/mutation/restore را با موفقیت آزموده است.
 - اسکریپت backup و restore دارای کنترل integrity/schema، جلوگیری از overwrite
   ناخواسته، hash خروجی و rollback خودکار است.
 - تنظیمات production، HTTPS در `PUBLIC_ORIGIN` و محدودهٔ صریح
