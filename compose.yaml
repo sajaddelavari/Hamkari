@@ -1,0 +1,16 @@
+services:
+  hamsakht:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    ports:
+      - "${PORT:-3000}:${PORT:-3000}"
+    volumes:
+      - hamsakht-data:/app/data
+      - hamsakht-backups:/app/backups
+
+volumes:
+  hamsakht-data:
+  hamsakht-backups:

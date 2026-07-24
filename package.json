@@ -1,13 +1,27 @@
 {
-  "name": "hamkari-puzzle-mvp",
+  "name": "hamsakht-project-room",
   "version": "1.0.0",
+  "description": "اتاق مشارکت سبک و قابل استقرار برای تبدیل نیازهای پروژه به تعهدهای واقعی",
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js"
+    "start": "node --env-file-if-exists=.env server.js",
+    "dev": "node --env-file-if-exists=.env --watch server.js",
+    "check": "node --check server.js && node --check public/app.js && node --check public/admin.js",
+    "test": "npm run test:backend && npm run test:e2e",
+    "test:backend": "node --test \"test/backend/*.test.js\"",
+    "test:e2e": "playwright test",
+    "audit:lighthouse": "node scripts/lighthouse.js",
+    "backup": "node scripts/backup.js",
+    "hash-password": "node scripts/hash-password.js"
   },
   "engines": {
     "node": ">=24"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
+    "@playwright/test": "^1.61.1",
+    "chrome-launcher": "^1.0.0",
+    "lighthouse": "^13.4.1"
   }
 }

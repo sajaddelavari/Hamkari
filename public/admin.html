@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0f5c47">
+  <meta name="robots" content="noindex,nofollow">
+  <title>مدیریت هم‌ساخت</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/admin.css">
+</head>
+<body class="admin-page">
+  <div id="adminToast" class="admin-toast" role="status" aria-live="polite"></div>
+
+  <main id="loginView" class="auth-shell">
+    <section class="auth-card" aria-labelledby="loginTitle">
+      <a class="admin-brand" href="/" aria-label="هم‌ساخت، صفحه عمومی">
+        <span class="brand-mark" aria-hidden="true">◆</span>
+        <span>هم‌ساخت<small>اتاق مدیریت پروژه</small></span>
+      </a>
+      <div class="auth-copy">
+        <span class="admin-eyebrow">ورود مدیر پروژه</span>
+        <h1 id="loginTitle">پیشنهادها را به تعهد واقعی تبدیل کنید</h1>
+        <p>با رمز مدیریت وارد شوید. اطلاعات تماس و جزئیات پیشنهادها فقط در این بخش نمایش داده می‌شود.</p>
+      </div>
+      <form id="loginForm" novalidate>
+        <input class="sr-only" name="username" value="admin" autocomplete="username" tabindex="-1" aria-hidden="true">
+        <label class="field">
+          <span>رمز مدیریت</span>
+          <input id="adminPassword" name="password" type="password" autocomplete="current-password" required minlength="12">
+          <small id="passwordError" class="field-error"></small>
+        </label>
+        <div id="loginError" class="form-alert" role="alert" hidden></div>
+        <button id="loginButton" class="admin-button primary" type="submit">
+          <span>ورود امن</span>
+        </button>
+      </form>
+      <a class="back-link" href="/">بازگشت به صفحه پروژه</a>
+    </section>
+  </main>
+
+  <div id="dashboardView" class="admin-shell" hidden>
+    <div id="sidebarBackdrop" class="sidebar-backdrop" hidden></div>
+    <aside id="adminSidebar" class="admin-sidebar" aria-label="ناوبری مدیریت">
+      <a class="admin-brand sidebar-brand" href="/">
+        <span class="brand-mark" aria-hidden="true">◆</span>
+        <span>هم‌ساخت<small>مدیریت پروژه</small></span>
+      </a>
+      <nav class="admin-nav">
+        <button class="nav-item is-active" type="button" data-view="overview">
+          <span aria-hidden="true">⌂</span><span>نمای کلی</span>
+        </button>
+        <button class="nav-item" type="button" data-view="proposals">
+          <span aria-hidden="true">◫</span><span>پیشنهادها</span>
+          <b id="navPendingCount" class="nav-count" hidden>۰</b>
+        </button>
+        <button class="nav-item" type="button" data-view="needs">
+          <span aria-hidden="true">◇</span><span>نیازهای پروژه</span>
+        </button>
+        <button class="nav-item" type="button" data-view="project">
+          <span aria-hidden="true">⚙</span><span>تنظیمات پروژه</span>
+        </button>
+      </nav>
+      <div class="sidebar-footer">
+        <a id="publicProjectLink" class="sidebar-link" href="/" target="_blank" rel="noreferrer">مشاهده صفحه عمومی ↗</a>
+        <button id="logoutButton" class="admin-button quiet" type="button">خروج از مدیریت</button>
+      </div>
+    </aside>
+
+    <div class="admin-workspace">
+      <header class="admin-header">
+        <div class="header-title">
+          <button id="sidebarToggle" class="icon-button sidebar-toggle" type="button" aria-label="بازکردن منوی مدیریت" aria-expanded="false">☰</button>
+          <div>
+            <span id="viewEyebrow" class="admin-eyebrow">امروز در پروژه</span>
+            <h1 id="viewTitle">نمای کلی</h1>
+          </div>
+        </div>
+        <div class="header-actions">
+          <span id="adminConnection" class="connection-badge" data-state="idle">
+            <i aria-hidden="true"></i><span>در حال بررسی</span>
+          </span>
+          <button id="refreshButton" class="icon-button" type="button" aria-label="به‌روزرسانی اطلاعات">↻</button>
+        </div>
+      </header>
+
+      <main class="admin-content">
+        <section id="view-overview" class="admin-view" aria-labelledby="overviewHeading">
+          <div class="view-heading">
+            <div>
+              <span class="admin-eyebrow">وضعیت عملیاتی</span>
+              <h2 id="overviewHeading">آنچه امروز نیاز به توجه دارد</h2>
+            </div>
+            <button class="admin-button secondary" type="button" data-go-view="proposals">مشاهده همه پیشنهادها</button>
+          </div>
+          <div id="overviewKpis" class="admin-kpi-grid" aria-live="polite"></div>
+          <div class="overview-grid">
+            <section class="admin-panel overview-primary" aria-labelledby="recentHeading">
+              <div class="panel-heading">
+                <div>
+                  <span class="admin-eyebrow">جدیدترین ورودی‌ها</span>
+                  <h3 id="recentHeading">پیشنهادهای منتظر اقدام</h3>
+                </div>
+              </div>
+              <div id="recentProposals" class="proposal-list compact-list"></div>
+            </section>
+            <section class="admin-panel overview-aside" aria-labelledby="attentionHeading">
+              <div class="panel-heading">
+                <div>
+                  <span class="admin-eyebrow">اولویت‌بندی</span>
+                  <h3 id="attentionHeading">نیازهای قابل پیگیری</h3>
+                </div>
+              </div>
+              <div id="attentionNeeds" class="attention-list"></div>
+            </section>
+          </div>
+        </section>
+
+        <section id="view-proposals" class="admin-view" aria-labelledby="proposalsHeading" hidden>
+          <div class="view-heading">
+            <div>
+              <span class="admin-eyebrow">مدیریت سرنخ‌ها</span>
+              <h2 id="proposalsHeading">پیشنهادهای همکاری</h2>
+            </div>
+          </div>
+          <div class="admin-toolbar">
+            <label class="search-field">
+              <span class="sr-only">جست‌وجوی پیشنهاد</span>
+              <input id="proposalSearch" type="search" placeholder="جست‌وجو در نام، نیاز یا کد پیگیری…">
+            </label>
+            <div id="proposalFilters" class="filter-chips" aria-label="فیلتر وضعیت">
+              <button class="filter-chip is-active" type="button" data-status="">همه</button>
+              <button class="filter-chip" type="button" data-status="new">جدید</button>
+              <button class="filter-chip" type="button" data-status="contacted">تماس گرفته‌شده</button>
+              <button class="filter-chip" type="button" data-status="negotiating">در مذاکره</button>
+              <button class="filter-chip" type="button" data-status="accepted">پذیرفته</button>
+              <button class="filter-chip" type="button" data-status="rejected">ردشده</button>
+            </div>
+          </div>
+          <section class="admin-panel table-panel">
+            <div id="proposalTable" class="responsive-table"></div>
+          </section>
+        </section>
+
+        <section id="view-needs" class="admin-view" aria-labelledby="needsHeading" hidden>
+          <div class="view-heading">
+            <div>
+              <span class="admin-eyebrow">ساختار مشارکت</span>
+              <h2 id="needsHeading">نیازهای پروژه</h2>
+            </div>
+            <button id="newNeedButton" class="admin-button primary" type="button">افزودن نیاز</button>
+          </div>
+          <div id="needsManager" class="needs-manager"></div>
+        </section>
+
+        <section id="view-project" class="admin-view" aria-labelledby="projectHeading" hidden>
+          <div class="view-heading">
+            <div>
+              <span class="admin-eyebrow">اطلاعات عمومی</span>
+              <h2 id="projectHeading">تنظیمات پروژه</h2>
+            </div>
+          </div>
+          <form id="projectForm" class="admin-panel editor-form" novalidate>
+            <div class="form-section">
+              <div class="form-section-title">
+                <h3>هویت پروژه</h3>
+                <p>این اطلاعات در Hero صفحه عمومی دیده می‌شود.</p>
+              </div>
+              <div class="form-grid two-column">
+                <label class="field"><span>عنوان پروژه</span><input name="title" required maxlength="140"></label>
+                <label class="field"><span>نشانی کوتاه (slug)</span><input name="slug" dir="ltr" required pattern="[a-z0-9-]+" maxlength="80"></label>
+              </div>
+              <label class="field"><span>زیرعنوان</span><input name="subtitle" required maxlength="240"></label>
+              <label class="field"><span>معرفی پروژه</span><textarea name="summary" required rows="5" maxlength="1600"></textarea></label>
+              <div class="form-grid two-column">
+                <label class="field"><span>موقعیت</span><input name="location" required maxlength="160"></label>
+                <label class="field"><span>موعد هدف</span><input name="targetDate" type="date"></label>
+              </div>
+              <label class="field"><span>زمان‌بندی به زبان ساده</span><input name="timeline" maxlength="500" placeholder="مثلاً: آغاز اجرا از پاییز ۱۴۰۵، بهره‌برداری در ۱۸ ماه"></label>
+            </div>
+            <div class="form-section">
+              <div class="form-section-title">
+                <h3>راهبر و انتشار</h3>
+                <p>از ادعای اعتبارسنجی یا تأیید رسمی بدون مدرک استفاده نکنید.</p>
+              </div>
+              <label class="field"><span>نام راهبر پروژه</span><input name="leaderName" required maxlength="160"></label>
+              <label class="field"><span>معرفی راهبر</span><textarea name="leaderDescription" rows="4" maxlength="1000"></textarea></label>
+              <label class="field"><span>فرآیند مشارکت</span><textarea name="processDescription" rows="5" maxlength="2000" placeholder="مراحل بررسی پیشنهاد، تماس، مذاکره و ثبت تعهد را شفاف توضیح دهید."></textarea></label>
+              <label class="field select-field">
+                <span>وضعیت انتشار</span>
+                <select name="status">
+                  <option value="draft">پیش‌نویس</option>
+                  <option value="published">منتشرشده</option>
+                </select>
+              </label>
+            </div>
+            <div class="form-actions sticky-actions">
+              <span id="projectSaveState" class="save-state" role="status"></span>
+              <button id="saveProjectButton" class="admin-button primary" type="submit">ذخیره تغییرات</button>
+            </div>
+          </form>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <dialog id="proposalDialog" class="admin-drawer">
+    <div class="drawer-shell">
+      <header class="drawer-header">
+        <div>
+          <span class="admin-eyebrow">بررسی پیشنهاد</span>
+          <h2 id="proposalDialogTitle">جزئیات پیشنهاد</h2>
+        </div>
+        <button id="closeProposalDialog" class="icon-button" type="button" aria-label="بستن جزئیات">×</button>
+      </header>
+      <div id="proposalDetail" class="drawer-content"></div>
+    </div>
+  </dialog>
+
+  <dialog id="needDialog" class="admin-modal">
+    <form id="needForm" class="modal-card" novalidate>
+      <header class="modal-header">
+        <div>
+          <span class="admin-eyebrow">ساختار پروژه</span>
+          <h2 id="needDialogTitle">افزودن نیاز</h2>
+        </div>
+        <button id="closeNeedDialog" class="icon-button" type="button" aria-label="بستن فرم">×</button>
+      </header>
+      <input name="id" type="hidden">
+      <div class="modal-body">
+        <div class="form-grid two-column">
+          <label class="field"><span>عنوان نیاز</span><input name="title" required maxlength="140"></label>
+          <label class="field"><span>دسته‌بندی</span><input name="category" required maxlength="80"></label>
+        </div>
+        <label class="field"><span>هدف یا خروجی مورد انتظار</span><input name="targetValue" required maxlength="180"></label>
+        <label class="field"><span>توضیح کوتاه</span><textarea name="description" required rows="4" maxlength="800"></textarea></label>
+        <label class="field"><span>دامنه و انتظارها</span><textarea name="requirements" rows="5" maxlength="1400"></textarea></label>
+        <label class="field"><span>ترتیب نمایش</span><input name="orderNo" type="number" min="1" max="999" required></label>
+        <div id="needFormError" class="form-alert" role="alert" hidden></div>
+      </div>
+      <footer class="modal-actions">
+        <button id="cancelNeedButton" class="admin-button secondary" type="button">انصراف</button>
+        <button id="saveNeedButton" class="admin-button primary" type="submit">ذخیره نیاز</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <script type="module" src="/admin.js"></script>
+</body>
+</html>
