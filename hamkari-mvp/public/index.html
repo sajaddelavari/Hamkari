@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0f7a5a">
+  <title>هم‌ساخت | نقشه زنده مشارکت</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#">هم‌ساخت<span>Hamsakht</span></a>
+    <div class="top-actions">
+      <span class="live-dot">نقشه زنده</span>
+      <button id="resetIdentity" class="ghost small">هویت آزمایشی جدید</button>
+    </div>
+  </header>
+
+  <main class="page">
+    <section class="hero">
+      <div>
+        <span class="eyebrow">طرح مشارکتی فعال</span>
+        <h1 id="projectTitle">در حال بارگذاری…</h1>
+        <p id="projectSubtitle"></p>
+        <div class="meta"><span id="projectLocation"></span><span>به‌روزرسانی آنی وضعیت مشارکت</span></div>
+      </div>
+      <div class="trust-card">
+        <strong id="completion">۰٪</strong>
+        <span>تثبیت کل طرح</span>
+        <div class="progress"><i id="completionBar"></i></div>
+        <small>هر قطعه فقط با تعهد روشن و قابل پیگیری کامل می‌شود.</small>
+      </div>
+    </section>
+
+    <section class="metrics" id="metrics"></section>
+
+    <section class="board-section">
+      <div class="section-title">
+        <div><span class="eyebrow">تصویر کلان</span><h2>قطعات همکاری</h2></div>
+        <div class="legend"><span><i class="l0"></i>باز</span><span><i class="l1"></i>مورد توجه</span><span><i class="l2"></i>جدی</span><span><i class="l3"></i>قطعی</span></div>
+      </div>
+      <div id="puzzle" class="puzzle" aria-live="polite"></div>
+    </section>
+  </main>
+
+  <dialog id="pieceDialog">
+    <button class="dialog-close" id="closeDialog" aria-label="بستن">×</button>
+    <div class="dialog-body">
+      <span class="eyebrow" id="detailCategory"></span>
+      <h2 id="detailTitle"></h2>
+      <p id="detailDescription"></p>
+      <div class="target"><span>هدف این قطعه</span><strong id="detailTarget"></strong></div>
+      <div class="status-row"><span id="detailStage" class="status"></span><strong id="detailScore"></strong></div>
+      <div class="progress large"><i id="detailBar"></i></div>
+      <div id="detailStats" class="detail-stats"></div>
+      <div class="actions">
+        <button id="followBtn" class="secondary">دنبال می‌کنم</button>
+        <button id="interestBtn" class="primary">برای مشارکت آمادگی دارم</button>
+      </div>
+      <button id="openCommitment" class="commit-action">ارائه پیشنهاد مشخص برای این بخش</button>
+    </div>
+  </dialog>
+
+  <dialog id="commitDialog" class="commit-dialog">
+    <button class="dialog-close" id="closeCommit" aria-label="بستن">×</button>
+    <form id="commitForm" class="dialog-body">
+      <span class="eyebrow">پیشنهاد مشارکت</span>
+      <h2>آورده و مسئولیت خود را روشن کنید</h2>
+      <p>این درخواست ابتدا در وضعیت بررسی قرار می‌گیرد و پس از توافق رسمی، قطعه سبز و تثبیت می‌شود.</p>
+      <label>نام فرد یا مجموعه<input id="actorName" required minlength="2" placeholder="مثلاً شرکت توسعه کشاورزی"></label>
+      <label>شرح پیشنهاد<textarea id="commitNote" required minlength="5" rows="5" placeholder="چه چیزی تأمین می‌کنید، در چه زمان و با چه شرایطی؟"></textarea></label>
+      <div id="formError" class="form-error"></div>
+      <button class="primary wide" type="submit">ثبت پیشنهاد برای بررسی</button>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status"></div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
