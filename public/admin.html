@@ -6,6 +6,7 @@
   <meta name="theme-color" content="#0f5c47">
   <meta name="robots" content="noindex,nofollow">
   <title>مدیریت هم‌ساخت</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/admin.css">
 </head>
@@ -46,6 +47,13 @@
         <span class="brand-mark" aria-hidden="true">◆</span>
         <span>هم‌ساخت<small>مدیریت پروژه</small></span>
       </a>
+      <div class="project-switcher">
+        <label for="projectSwitcher">پروژهٔ فعال</label>
+        <div>
+          <select id="projectSwitcher" aria-label="انتخاب پروژه"></select>
+          <button id="newProjectButton" class="switcher-add" type="button" aria-label="ساخت پروژهٔ جدید">＋</button>
+        </div>
+      </div>
       <nav class="admin-nav">
         <button class="nav-item is-active" type="button" data-view="overview">
           <span aria-hidden="true">⌂</span><span>نمای کلی</span>
@@ -57,8 +65,26 @@
         <button class="nav-item" type="button" data-view="needs">
           <span aria-hidden="true">◇</span><span>نیازهای پروژه</span>
         </button>
+        <button class="nav-item" type="button" data-view="stakeholders">
+          <span aria-hidden="true">◎</span><span>ذی‌نفعان</span>
+        </button>
+        <button class="nav-item" type="button" data-view="capital">
+          <span aria-hidden="true">▦</span><span>سرمایه و دارایی</span>
+        </button>
+        <button class="nav-item" type="button" data-view="transfers">
+          <span aria-hidden="true">⇄</span><span>عرضه و انتقال</span>
+        </button>
+        <button class="nav-item" type="button" data-view="finance">
+          <span aria-hidden="true">∿</span><span>مالی و بازده</span>
+        </button>
+        <button class="nav-item" type="button" data-view="goals">
+          <span aria-hidden="true">◉</span><span>اهداف و نقاط عطف</span>
+        </button>
+        <button class="nav-item" type="button" data-view="governance">
+          <span aria-hidden="true">◈</span><span>جلسات و مصوبات</span>
+        </button>
         <button class="nav-item" type="button" data-view="project">
-          <span aria-hidden="true">⚙</span><span>تنظیمات پروژه</span>
+          <span aria-hidden="true">⚙</span><span>پروژه‌ها و تنظیمات</span>
         </button>
       </nav>
       <div class="sidebar-footer">
@@ -153,11 +179,135 @@
           <div id="needsManager" class="needs-manager"></div>
         </section>
 
+        <section id="view-stakeholders" class="admin-view" aria-labelledby="stakeholdersHeading" hidden>
+          <div class="view-heading">
+            <div>
+              <span class="admin-eyebrow">اطلاعات خصوصی پروژه</span>
+              <h2 id="stakeholdersHeading">ذی‌نفعان و نقش‌ها</h2>
+              <p>نام و راه تماس فقط برای مدیران احراز هویت‌شده نمایش داده می‌شود.</p>
+            </div>
+            <button id="newStakeholderButton" class="admin-button primary" type="button">افزودن ذی‌نفع</button>
+          </div>
+          <section class="admin-panel table-panel">
+            <div id="stakeholderList" class="resource-list"></div>
+          </section>
+        </section>
+
+        <section id="view-capital" class="admin-view" aria-labelledby="capitalHeading" hidden>
+          <div class="view-heading">
+            <div>
+              <span class="admin-eyebrow">دفتر مالکیت داخلی</span>
+              <h2 id="capitalHeading">طبقات سرمایه و دارایی‌ها</h2>
+            </div>
+            <div class="view-actions">
+              <button id="issueSharesButton" class="admin-button secondary" type="button">صدور واحد</button>
+              <button id="newShareClassButton" class="admin-button primary" type="button">طبقهٔ جدید</button>
+            </div>
+          </div>
+          <div class="admin-ledger-notice" role="note">
+            <strong>مرز سامانه</strong>
+            <span>دفتر ثبت داخلی؛ تسویه بانکی و اعتبار حقوقی انتقال خارج از سامانه انجام می‌شود</span>
+          </div>
+          <div id="capitalSummary" class="admin-kpi-grid"></div>
+          <div class="admin-two-column">
+            <section class="admin-panel">
+              <div class="panel-heading"><h3>طبقات سرمایه</h3></div>
+              <div id="shareClassList" class="resource-list"></div>
+            </section>
+            <section class="admin-panel">
+              <div class="panel-heading"><h3>مالکیت ثبت‌شده</h3></div>
+              <div id="holdingsTable" class="resource-list"></div>
+            </section>
+          </div>
+          <section id="stakeholderReturnsPanel" class="admin-panel returns-panel" hidden>
+            <div class="panel-heading">
+              <div>
+                <span class="admin-eyebrow">برآورد مدیریتی، نه گزارش قطعی</span>
+                <h3>برآورد بازده ذی‌نفعان</h3>
+              </div>
+            </div>
+            <p class="panel-note">اعداد این جدول بر پایهٔ داده‌های داخلی پروژه برآورد شده‌اند و جایگزین صورت‌حساب، تسویه یا ارزیابی رسمی نیستند.</p>
+            <div id="stakeholderReturns" class="resource-list"></div>
+          </section>
+        </section>
+
+        <section id="view-transfers" class="admin-view" aria-labelledby="transfersHeading" hidden>
+          <div class="view-heading">
+            <div>
+              <span class="admin-eyebrow">گردش واحدهای سرمایه</span>
+              <h2 id="transfersHeading">عرضه‌ها و انتقال‌ها</h2>
+            </div>
+            <div class="view-actions">
+              <button id="newTransferButton" class="admin-button secondary" type="button">ثبت انتقال</button>
+              <button id="newOfferButton" class="admin-button primary" type="button">ثبت عرضه</button>
+            </div>
+          </div>
+          <div class="admin-ledger-notice" role="note">
+            <strong>مرز سامانه</strong>
+            <span>دفتر ثبت داخلی؛ تسویه بانکی و اعتبار حقوقی انتقال خارج از سامانه انجام می‌شود</span>
+          </div>
+          <div class="admin-two-column">
+            <section class="admin-panel">
+              <div class="panel-heading"><h3>عرضه‌های سرمایه</h3></div>
+              <div id="offerList" class="resource-list"></div>
+            </section>
+            <section class="admin-panel">
+              <div class="panel-heading"><h3>درخواست‌های انتقال</h3></div>
+              <div id="transferList" class="resource-list"></div>
+            </section>
+          </div>
+        </section>
+
+        <section id="view-finance" class="admin-view" aria-labelledby="financeHeading" hidden>
+          <div class="view-heading">
+            <div>
+              <span class="admin-eyebrow">دفتر مالی پروژه</span>
+              <h2 id="financeHeading">سود و زیان، جریان نقد و ROI</h2>
+              <p>ثبت‌های اصلاحی رکورد اصلی را حذف نمی‌کنند و رد حسابرسی را حفظ می‌کنند.</p>
+            </div>
+            <button id="newFinancialEntryButton" class="admin-button primary" type="button">ثبت رویداد مالی</button>
+          </div>
+          <div id="financeSummary" class="admin-kpi-grid"></div>
+          <section class="admin-panel table-panel">
+            <div id="financialEntries" class="resource-list"></div>
+          </section>
+        </section>
+
+        <section id="view-goals" class="admin-view" aria-labelledby="goalsHeading" hidden>
+          <div class="view-heading">
+            <div>
+              <span class="admin-eyebrow">پیشرفت عملیاتی مستقل</span>
+              <h2 id="goalsHeading">اهداف و نقاط عطف وزن‌دار</h2>
+              <p>این درصد با تکمیل مشارکت یا بازده مالی ترکیب نمی‌شود.</p>
+            </div>
+            <button id="newGoalButton" class="admin-button primary" type="button">افزودن هدف</button>
+          </div>
+          <div id="goalsSummary" class="admin-kpi-grid"></div>
+          <div id="goalsBoard" class="resource-board"></div>
+        </section>
+
+        <section id="view-governance" class="admin-view" aria-labelledby="governanceHeading" hidden>
+          <div class="view-heading">
+            <div>
+              <span class="admin-eyebrow">حاکمیت و تصمیم‌گیری</span>
+              <h2 id="governanceHeading">جلسات، مصوبات و آرا</h2>
+              <p>انتشار عمومی هر جلسه و مصوبه مستقل کنترل می‌شود.</p>
+            </div>
+            <button id="newMeetingButton" class="admin-button primary" type="button">برنامه‌ریزی جلسه</button>
+          </div>
+          <div id="governanceSummary" class="admin-kpi-grid"></div>
+          <div id="meetingsBoard" class="resource-board"></div>
+        </section>
+
         <section id="view-project" class="admin-view" aria-labelledby="projectHeading" hidden>
           <div class="view-heading">
             <div>
               <span class="admin-eyebrow">اطلاعات عمومی</span>
               <h2 id="projectHeading">تنظیمات پروژه</h2>
+            </div>
+            <div class="view-actions">
+              <button id="archiveProjectButton" class="admin-button danger" type="button">بایگانی پروژه</button>
+              <button id="newProjectInlineButton" class="admin-button primary" type="button">ساخت پروژهٔ جدید</button>
             </div>
           </div>
           <form id="projectForm" class="admin-panel editor-form" novalidate>
@@ -176,6 +326,33 @@
                 <label class="field"><span>موقعیت</span><input name="location" required maxlength="160"></label>
                 <label class="field"><span>موعد هدف</span><input name="targetDate" type="date"></label>
               </div>
+              <div class="form-grid three-column">
+                <label class="field"><span>صنعت</span><input name="industry" maxlength="120"></label>
+                <label class="field"><span>حوزه</span><input name="sector" maxlength="120"></label>
+                <label class="field"><span>نوع پروژه</span><input name="kind" maxlength="120"></label>
+              </div>
+              <div class="form-grid three-column">
+                <label class="field select-field">
+                  <span>مرحله</span>
+                  <select name="stage">
+                    <option value="idea">ایده</option>
+                    <option value="feasibility">امکان‌سنجی</option>
+                    <option value="fundraising">جذب سرمایه</option>
+                    <option value="pilot">پایلوت</option>
+                    <option value="execution">اجرا</option>
+                    <option value="construction">ساخت</option>
+                    <option value="operating">بهره‌برداری</option>
+                    <option value="on_hold">متوقف</option>
+                    <option value="completed">تکمیل‌شده</option>
+                  </select>
+                </label>
+                <label class="field"><span>واحد پول</span><input name="currency" dir="ltr" value="IRR" maxlength="3"></label>
+                <label class="field"><span>تاریخ شروع</span><input name="startDate" type="date"></label>
+              </div>
+              <div class="form-grid two-column">
+                <label class="field"><span>بودجه</span><input name="budgetAmount" type="number" min="0"></label>
+                <label class="field"><span>ارزش‌گذاری</span><input name="valuationAmount" type="number" min="0"></label>
+              </div>
               <label class="field"><span>زمان‌بندی به زبان ساده</span><input name="timeline" maxlength="500" placeholder="مثلاً: آغاز اجرا از پاییز ۱۴۰۵، بهره‌برداری در ۱۸ ماه"></label>
             </div>
             <div class="form-section">
@@ -192,6 +369,13 @@
                   <option value="draft">پیش‌نویس</option>
                   <option value="published">منتشرشده</option>
                 </select>
+              </label>
+              <label class="project-default-toggle">
+                <input name="isDefault" type="checkbox">
+                <span>
+                  <strong>پروژهٔ پیش‌فرض</strong>
+                  <small>صفحهٔ سازگاری و نشست فعلی به این پروژه اشاره می‌کند؛ در هر لحظه فقط یک پروژه پیش‌فرض است.</small>
+                </span>
               </label>
             </div>
             <div class="form-actions sticky-actions">
@@ -241,6 +425,27 @@
       <footer class="modal-actions">
         <button id="cancelNeedButton" class="admin-button secondary" type="button">انصراف</button>
         <button id="saveNeedButton" class="admin-button primary" type="submit">ذخیره نیاز</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="entityDialog" class="admin-modal entity-dialog">
+    <form id="entityForm" class="modal-card" novalidate>
+      <header class="modal-header">
+        <div>
+          <span id="entityDialogEyebrow" class="admin-eyebrow">مرکز عملیات</span>
+          <h2 id="entityDialogTitle">ثبت مورد جدید</h2>
+          <p id="entityDialogDescription"></p>
+        </div>
+        <button id="closeEntityDialog" class="icon-button" type="button" aria-label="بستن فرم">×</button>
+      </header>
+      <div class="modal-body">
+        <div id="entityFields" class="entity-fields"></div>
+        <div id="entityFormError" class="form-alert" role="alert" hidden></div>
+      </div>
+      <footer class="modal-actions">
+        <button id="cancelEntityButton" class="admin-button secondary" type="button">انصراف</button>
+        <button id="saveEntityButton" class="admin-button primary" type="submit">ذخیره</button>
       </footer>
     </form>
   </dialog>

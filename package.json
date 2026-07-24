@@ -1,13 +1,13 @@
 {
-  "name": "hamsakht-project-room",
-  "version": "1.0.0",
-  "description": "اتاق مشارکت سبک و قابل استقرار برای تبدیل نیازهای پروژه به تعهدهای واقعی",
+  "name": "hamsakht-platform",
+  "version": "2.0.0",
+  "description": "پلتفرم جامع و سبک مدیریت سبد پروژه‌ها، مشارکت، سرمایه، عملکرد مالی و حاکمیت",
   "private": true,
   "type": "module",
   "scripts": {
     "start": "node --env-file-if-exists=.env server.js",
     "dev": "node --env-file-if-exists=.env --watch server.js",
-    "check": "node --check server.js && node --check public/app.js && node --check public/admin.js",
+    "check": "node --check server.js && node --check src/platform-store.js && node --check src/platform-routes.js && node --check public/app.js && node --check public/admin.js",
     "test": "npm run test:backend && npm run test:e2e",
     "test:backend": "node --test \"test/backend/*.test.js\"",
     "test:e2e": "playwright test",

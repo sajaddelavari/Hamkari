@@ -18,20 +18,44 @@ function publishProjectUpdate(context, slug, reason) {
 
 export async function routePublicApi(context) {
   const { request, response, url, store } = context;
+  if (request.method === 'GET' && url.pathname === '/api/v1/projects') {
+    sendJson(response, 200, context.platformStore.portfolio(true, {
+      limit: url.searchParams.get('limit') || 100,
+    }));
+    return true;
+  }
   if (request.method === 'GET' && url.pathname === '/api/v1/projects/current') {
     const visitorId = context.visitor();
-    sendJson(
-      response,
-      200,
-      store.publicProject(store.activeProjectSlug(), visitorId),
+    const payload = store.publicProject(store.publicCurrentProjectSlug(), visitorId);
+    Object.assign(
+      payload.project,
+      context.platformStore.getProject(payload.project.id, {
+        publicOnly: true,
+      }).project,
     );
+    Object.assign(
+      payload.project,
+      context.platformStore.publicSummary(payload.project.id),
+    );
+    sendJson(response, 200, payload);
     return true;
   }
   const projectMatch = url.pathname.match(/^\/api\/v1\/projects\/([^/]+)$/);
   if (request.method === 'GET' && projectMatch) {
     const visitorId = context.visitor();
     const slug = decodeSegment(projectMatch[1]);
-    sendJson(response, 200, store.publicProject(slug, visitorId));
+    const payload = store.publicProject(slug, visitorId);
+    Object.assign(
+      payload.project,
+      context.platformStore.getProject(payload.project.id, {
+        publicOnly: true,
+      }).project,
+    );
+    Object.assign(
+      payload.project,
+      context.platformStore.publicSummary(payload.project.id),
+    );
+    sendJson(response, 200, payload);
     return true;
   }
 

@@ -22,6 +22,7 @@ import {
   validateProject,
   validateProposalPatch,
 } from './validation.js';
+import { routePlatformAdminApi } from './platform-routes.js';
 
 const ADMIN_COOKIE = 'hamkari_admin';
 
@@ -144,6 +145,8 @@ export async function routeAdminApi(context) {
     sendJson(response, 200, { authenticated: false });
     return true;
   }
+
+  if (await routePlatformAdminApi(context, readSession)) return true;
 
   if (url.pathname === '/api/v1/admin/project' && request.method === 'GET') {
     readSession(context);

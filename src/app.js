@@ -13,6 +13,7 @@ import {
 } from './http.js';
 import { routePublicApi } from './public-routes.js';
 import { MemoryRateLimiter } from './rate-limit.js';
+import { createPlatformStore } from './platform-store.js';
 import {
   createPasswordHash,
   createSignedVisitorCookie,
@@ -63,6 +64,7 @@ export function createApplication(options) {
     clock,
     publicOrigin: config.publicOrigin,
   });
+  const platformStore = options.platformStore || createPlatformStore(db, { clock });
   const broker = options.broker || new SseBroker({ now: clock });
   const rateLimiter = options.rateLimiter || new MemoryRateLimiter({
     now: () => clock().getTime(),
@@ -112,6 +114,7 @@ export function createApplication(options) {
         url,
         config,
         store,
+        platformStore,
         broker,
         rateLimiter,
         adminPasswordHash,
@@ -195,6 +198,7 @@ export function createApplication(options) {
     close,
     db,
     store,
+    platformStore,
     broker,
     rateLimiter,
     config,

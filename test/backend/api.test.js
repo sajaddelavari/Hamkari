@@ -395,10 +395,9 @@ test('admin can edit project and create, patch, reorder, then archive needs', as
     (await fixture.client().request('/api/v1/projects/greenhouse-room')).response.status,
     404,
   );
-  assert.equal(
-    (await fixture.client().request('/api/v1/projects/current')).response.status,
-    404,
-  );
+  const publishedFallback = await fixture.client().request('/api/v1/projects/current');
+  assert.equal(publishedFallback.response.status, 200);
+  assert.notEqual(publishedFallback.data.project.slug, 'greenhouse-room');
   await admin.request('/api/v1/admin/project', {
     method: 'PUT',
     headers,

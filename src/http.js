@@ -308,6 +308,7 @@ export function decodeSegment(value) {
 
 function routeDocument(pathname, publicDir) {
   if (pathname === '/') return 'index.html';
+  if (pathname === '/projects') return 'index.html';
   if (pathname === '/admin') {
     return existsSync(resolve(publicDir, 'admin.html')) ? 'admin.html' : 'index.html';
   }

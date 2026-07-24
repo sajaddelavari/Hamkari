@@ -63,7 +63,7 @@ test.describe.serial("مسیر اصلی محصول", () => {
   test("ثبت، پیگیری و پذیرش پیشنهاد پیشرفت واقعی را تغییر می‌دهد", async ({ page }) => {
     await page.goto(projectPath);
     await expect(page.getByRole("heading", { level: 1 })).toContainText("گلخانه");
-    await expect(page.locator('[data-summary-percent]')).toHaveText("۰٪");
+    await expect(page.locator('[data-summary-percent]').first()).toHaveText("۰٪");
 
     const capitalCard = page.locator('[data-need-card-id="capital"]');
     await expect(capitalCard).toBeVisible();
@@ -99,7 +99,7 @@ test.describe.serial("مسیر اصلی محصول", () => {
     await expect(page.getByRole("dialog")).toContainText("پذیرفته‌شده");
 
     await page.goto(projectPath);
-    await expect(page.locator('[data-summary-percent]')).toHaveText("۱۳٪");
+    await expect(page.locator('[data-summary-percent]').first()).toHaveText("۱۳٪");
     await expect(page.locator('[data-need-card-id="capital"]')).toContainText("تعهد نهایی");
 
     await page.goto("/my-proposals");
@@ -198,7 +198,7 @@ test.describe.serial("مسیر اصلی محصول", () => {
   });
 
   test("پنل مدیر همه صفحه‌های پیشنهاد و آمار تجمیعی را دریافت می‌کند", async ({ page }) => {
-    await page.route("**/api/v1/admin/proposals?*", async route => {
+    await page.route("**/api/v1/admin/**/proposals?*", async route => {
       const offset = Number(new URL(route.request().url()).searchParams.get("offset") || 0);
       const count = offset === 0 ? 200 : 1;
       const proposals = Array.from({ length: count }, (_, index) => {
@@ -236,6 +236,16 @@ test.describe.serial("مسیر اصلی محصول", () => {
     await expect(page.locator("#navPendingCount")).toHaveText("۲۰۱");
     await page.locator('.nav-item[data-view="proposals"]').click();
     await expect(page.getByText("متقاضی صفحه دوم", { exact: true })).toBeVisible();
+    await page.context().setOffline(true);
+    await page.getByRole("button", { name: "خروج از مدیریت" }).click();
+    await expect(page.locator("#dashboardView")).toBeVisible();
+    await expect(page.locator("#adminToast")).toContainText("خروج انجام نشد");
+
+    await page.context().setOffline(false);
+    await page.getByRole("button", { name: "خروج از مدیریت" }).click();
+    await expect(page.getByLabel("رمز مدیریت")).toBeVisible();
+    await page.reload();
+    await expect(page.getByLabel("رمز مدیریت")).toBeVisible();
   });
 
   test("مدیر اطلاعات پروژه و چرخه ایجاد تا آرشیو نیاز را از رابط کامل می‌کند", async ({ page }) => {
@@ -268,10 +278,11 @@ test.describe.serial("مسیر اصلی محصول", () => {
     await expect(page.locator("#projectSaveState")).toContainText("ذخیره شد");
     await page.goto("/");
     await expect(page).toHaveURL(/\/$/);
-    await expect(page.getByRole("heading", { level: 1 })).toContainText("گلخانه");
-    await expect(page.locator("#project-nav-link")).toHaveAttribute(
-      "href",
-      "/projects/greenhouse-live-room"
-    );
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("هر پروژه");
+    const portfolioCard = page.locator(".portfolio-card").filter({ hasText: "گلخانه" });
+    await expect(portfolioCard).toBeVisible();
+    await expect(portfolioCard.getByRole("link", { name: "مشاهدهٔ پروندهٔ پروژه" }))
+      .toHaveAttribute("href", "/projects/greenhouse-live-room");
+    await expect(page.locator("#project-nav-link")).toHaveAttribute("href", "/projects");
   });
 });

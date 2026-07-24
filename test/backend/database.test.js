@@ -271,7 +271,7 @@ test('backup script creates a consistent non-overwriting SQLite snapshot', () =>
     const backup = new DatabaseSync(destination, { readOnly: true });
     try {
       assert.equal(backup.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
-      assert.equal(backup.prepare('SELECT COUNT(*) AS c FROM projects').get().c, 1);
+      assert.equal(backup.prepare('SELECT COUNT(*) AS c FROM projects').get().c, 3);
     } finally {
       backup.close();
     }
