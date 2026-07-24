@@ -1,8 +1,9 @@
 import { chmodSync, mkdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { hashToken, randomToken } from './security.js';
+import { applyEnterpriseSchema, syncLegacyFinance } from './enterprise-schema.js';
 
-export const SCHEMA_VERSION = 11;
+export const SCHEMA_VERSION = 18;
 const MAX_PRACTICAL_WEIGHT = 1_000_000;
 
 function quotedIdentifier(identifier) {
@@ -1193,6 +1194,392 @@ function migration11(db) {
   assertFinancialAggregatesSafeForMigration(db);
 }
 
+function migration12(db) {
+  applyEnterpriseSchema(db);
+}
+
+function migration13(db) {
+  const hadWorkflowStatus = columnNames(db, 'decision_actions')
+    .has('workflow_status');
+  ensureColumn(
+    db,
+    'decision_actions',
+    'description',
+    "TEXT NOT NULL DEFAULT ''",
+  );
+  ensureColumn(
+    db,
+    'decision_actions',
+    'priority',
+    "TEXT NOT NULL DEFAULT 'medium'",
+  );
+  ensureColumn(
+    db,
+    'decision_actions',
+    'workflow_status',
+    "TEXT NOT NULL DEFAULT 'open'",
+  );
+  ensureColumn(db, 'decision_actions', 'blocked_at', 'TEXT');
+  ensureColumn(db, 'decision_actions', 'cancelled_at', 'TEXT');
+  db.exec(`
+    UPDATE decision_actions
+    SET workflow_status=CASE status
+      WHEN 'done' THEN 'completed'
+      WHEN 'cancelled' THEN 'cancelled'
+      WHEN 'in_progress' THEN 'in_progress'
+      ELSE 'open'
+    END
+    ${hadWorkflowStatus
+      ? `WHERE workflow_status NOT IN (
+          'open','in_progress','blocked','completed','cancelled'
+        ) OR workflow_status IS NULL`
+      : ''};
+
+    CREATE TABLE IF NOT EXISTS decision_action_history (
+      id TEXT PRIMARY KEY,
+      decision_action_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      from_status TEXT,
+      to_status TEXT,
+      actor_type TEXT NOT NULL,
+      actor_id TEXT,
+      actor_user_id TEXT,
+      before_json TEXT,
+      after_json TEXT,
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      audit_event_id TEXT,
+      audit_event_hash TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(decision_action_id)
+        REFERENCES decision_actions(id) ON DELETE CASCADE,
+      FOREIGN KEY(actor_user_id) REFERENCES users(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS decision_actions_workflow
+      ON decision_actions(project_id, workflow_status, priority, due_date);
+    CREATE INDEX IF NOT EXISTS decision_action_history_action
+      ON decision_action_history(decision_action_id, created_at DESC, id DESC);
+  `);
+}
+
+function migration14(db) {
+  ensureColumn(
+    db,
+    'organization_invitations',
+    'project_role_key',
+    `TEXT CHECK(project_role_key IS NULL OR project_role_key IN (
+      'project_manager','contributor','finance','board','auditor','viewer'
+    ))`,
+  );
+  db.exec(`
+    UPDATE organization_invitations
+    SET project_role_key=role_key
+    WHERE project_id IS NOT NULL AND project_role_key IS NULL;
+  `);
+}
+
+function migration15(db) {
+  ensureColumn(
+    db,
+    'corporate_actions',
+    'approved_by_user_id',
+    'TEXT REFERENCES users(id) ON DELETE SET NULL',
+  );
+  ensureColumn(db, 'corporate_actions', 'approved_at', 'TEXT');
+  ensureColumn(db, 'corporate_actions', 'approved_preview_hash', 'TEXT');
+  ensureColumn(
+    db,
+    'corporate_actions',
+    'executed_by_user_id',
+    'TEXT REFERENCES users(id) ON DELETE SET NULL',
+  );
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS corporate_actions_approval
+      ON corporate_actions(project_id, status, approved_at);
+  `);
+}
+
+function migration16(db) {
+  ensureColumn(
+    db,
+    'share_transfers',
+    'resolution_id',
+    'TEXT REFERENCES meeting_resolutions(id) ON DELETE SET NULL',
+  );
+  ensureColumn(
+    db,
+    'share_transfers',
+    'contract_id',
+    'TEXT REFERENCES contracts(id) ON DELETE SET NULL',
+  );
+  ensureColumn(
+    db,
+    'share_transfers',
+    'payment_intent_id',
+    'TEXT REFERENCES payment_intents(id) ON DELETE SET NULL',
+  );
+  ensureColumn(
+    db,
+    'share_transfers',
+    'created_by_user_id',
+    'TEXT REFERENCES users(id) ON DELETE SET NULL',
+  );
+  ensureColumn(
+    db,
+    'share_transfers',
+    'approved_by_user_id',
+    'TEXT REFERENCES users(id) ON DELETE SET NULL',
+  );
+  ensureColumn(db, 'share_transfers', 'approved_at', 'TEXT');
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS share_transfers_compliance
+      ON share_transfers(project_id, status, resolution_id, contract_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS share_transfers_payment_once
+      ON share_transfers(payment_intent_id)
+      WHERE payment_intent_id IS NOT NULL AND status='approved';
+  `);
+}
+
+function migration17(db) {
+  if (tableExists(db, 'project_stakeholders')) {
+    ensureColumn(
+      db,
+      'project_stakeholders',
+      'user_id',
+      'TEXT REFERENCES users(id) ON DELETE SET NULL',
+    );
+  }
+  if (tableExists(db, 'meeting_resolutions')) {
+    ensureColumn(
+      db,
+      'meeting_resolutions',
+      'operation_type',
+      `TEXT CHECK(operation_type IS NULL OR operation_type IN (
+        'corporate_action','share_transfer'
+      ))`,
+    );
+    ensureColumn(
+      db,
+      'meeting_resolutions',
+      'operation_scope_json',
+      "TEXT NOT NULL DEFAULT '{}'",
+    );
+    ensureColumn(db, 'meeting_resolutions', 'operation_request_hash', 'TEXT');
+  }
+  if (tableExists(db, 'resolution_votes')) {
+    ensureColumn(
+      db,
+      'resolution_votes',
+      'cast_by_user_id',
+      'TEXT REFERENCES users(id) ON DELETE SET NULL',
+    );
+    ensureColumn(
+      db,
+      'resolution_votes',
+      'proxy_id',
+      'TEXT REFERENCES governance_proxies(id) ON DELETE SET NULL',
+    );
+  }
+  ensureColumn(
+    db,
+    'payment_intents',
+    'purpose_type',
+    `TEXT CHECK(purpose_type IS NULL OR purpose_type IN (
+      'invoice','share_transfer','preemptive_right','distribution','general'
+    ))`,
+  );
+  ensureColumn(db, 'payment_intents', 'purpose_id', 'TEXT');
+  ensureColumn(db, 'payment_intents', 'purpose_hash', 'TEXT');
+
+  if (tableExists(db, 'project_stakeholders')) {
+    db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS project_stakeholders_user_once
+        ON project_stakeholders(project_id, user_id)
+        WHERE user_id IS NOT NULL;
+    `);
+  }
+  if (tableExists(db, 'meeting_resolutions')) {
+    db.exec(`
+      CREATE TRIGGER IF NOT EXISTS resolution_operation_scope_immutable
+      BEFORE UPDATE OF
+        operation_type,operation_scope_json,operation_request_hash
+        ON meeting_resolutions
+      WHEN OLD.status<>'draft'
+        AND (
+          OLD.operation_type IS NOT NEW.operation_type OR
+          OLD.operation_scope_json IS NOT NEW.operation_scope_json OR
+          OLD.operation_request_hash IS NOT NEW.operation_request_hash
+        )
+      BEGIN
+        SELECT RAISE(ABORT, 'resolution operation scope is immutable');
+      END;
+    `);
+  }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS resolution_operation_bindings (
+      resolution_id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      operation_type TEXT NOT NULL
+        CHECK(operation_type IN ('corporate_action','share_transfer')),
+      operation_id TEXT NOT NULL UNIQUE,
+      request_hash TEXT NOT NULL,
+      bound_at TEXT NOT NULL,
+      consumed_at TEXT,
+      FOREIGN KEY(resolution_id)
+        REFERENCES meeting_resolutions(id) ON DELETE RESTRICT,
+      FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS resolution_operation_bindings_project
+      ON resolution_operation_bindings(project_id, operation_type, bound_at);
+
+    CREATE TRIGGER IF NOT EXISTS resolution_operation_binding_immutable
+    BEFORE UPDATE OF
+      resolution_id,project_id,operation_type,operation_id,request_hash
+      ON resolution_operation_bindings
+    BEGIN
+      SELECT RAISE(ABORT, 'resolution operation binding is immutable');
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS resolution_operation_binding_no_delete
+    BEFORE DELETE ON resolution_operation_bindings
+    BEGIN
+      SELECT RAISE(ABORT, 'resolution operation binding is immutable');
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS resolution_operation_consumption_immutable
+    BEFORE UPDATE OF consumed_at ON resolution_operation_bindings
+    WHEN OLD.consumed_at IS NOT NULL
+      AND OLD.consumed_at IS NOT NEW.consumed_at
+    BEGIN
+      SELECT RAISE(ABORT, 'resolution operation consumption is immutable');
+    END;
+
+    CREATE UNIQUE INDEX IF NOT EXISTS payment_share_transfer_purpose_once
+      ON payment_intents(organization_id, purpose_type, purpose_id)
+      WHERE purpose_type='share_transfer' AND purpose_id IS NOT NULL;
+
+    CREATE TRIGGER IF NOT EXISTS payment_purpose_immutable
+    BEFORE UPDATE OF purpose_type, purpose_id, purpose_hash ON payment_intents
+    WHEN (
+        OLD.purpose_type IS NOT NULL OR
+        OLD.purpose_id IS NOT NULL OR
+        OLD.purpose_hash IS NOT NULL
+      )
+      AND (
+        OLD.purpose_type IS NOT NEW.purpose_type OR
+        OLD.purpose_id IS NOT NEW.purpose_id OR
+        OLD.purpose_hash IS NOT NEW.purpose_hash
+      )
+    BEGIN
+      SELECT RAISE(ABORT, 'payment purpose is immutable');
+    END;
+
+    UPDATE decision_actions
+    SET workflow_status=CASE status
+      WHEN 'done' THEN 'completed'
+      WHEN 'cancelled' THEN 'cancelled'
+      WHEN 'in_progress' THEN 'in_progress'
+      ELSE 'open'
+    END
+    WHERE workflow_status='open'
+      AND status IN ('done','cancelled','in_progress')
+      AND NOT EXISTS(
+        SELECT 1
+        FROM decision_action_history history
+        WHERE history.decision_action_id=decision_actions.id
+      );
+
+    UPDATE corporate_actions
+    SET status='draft',
+        approved_by_user_id=NULL,
+        approved_at=NULL,
+        approved_preview_hash=NULL,
+        updated_at=COALESCE(NULLIF(updated_at,''),created_at)
+    WHERE status='approved'
+      AND (
+        approved_preview_hash IS NULL OR
+        approved_preview_hash=''
+      );
+
+    UPDATE share_transfers
+    SET status='draft',
+        approved_by_user_id=NULL,
+        approved_at=NULL,
+        decided_at=NULL,
+        decision_note=CASE
+          WHEN decision_note IS NULL OR decision_note=''
+            THEN 'Compliance evidence must be reviewed and resubmitted.'
+          ELSE decision_note ||
+            ' | Compliance evidence must be reviewed and resubmitted.'
+        END
+    WHERE status='pending'
+      AND EXISTS(
+        SELECT 1
+        FROM projects project
+        JOIN organization_memberships membership
+          ON membership.organization_id=project.organization_id
+         AND membership.role_key='owner'
+         AND membership.status='active'
+        JOIN users user
+          ON user.id=membership.user_id
+         AND user.status='active'
+        WHERE project.id=share_transfers.project_id
+      );
+  `);
+}
+
+function migration18(db) {
+  if (!tableExists(db, 'proposal_events')) return;
+  const actorConstraint = String(
+    db.prepare(`
+      SELECT sql
+      FROM sqlite_master
+      WHERE type='table' AND name='proposal_events'
+    `).get()?.sql || '',
+  );
+  if (actorConstraint.includes("'api_key'")) {
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS proposal_events_proposal_created
+        ON proposal_events(proposal_id, created_at, id);
+    `);
+    return;
+  }
+  db.exec(`
+    CREATE TABLE proposal_events_v18 (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      proposal_id TEXT NOT NULL,
+      actor_type TEXT NOT NULL
+        CHECK(actor_type IN ('applicant','admin','system','api_key')),
+      actor_id TEXT,
+      event_type TEXT NOT NULL
+        CHECK(event_type IN (
+          'created','status_changed','internal_note','decision_message','migrated'
+        )),
+      from_status TEXT,
+      to_status TEXT,
+      message TEXT,
+      visibility TEXT NOT NULL DEFAULT 'applicant'
+        CHECK(visibility IN ('applicant','admin')),
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(proposal_id) REFERENCES proposals(id) ON DELETE CASCADE
+    );
+
+    INSERT INTO proposal_events_v18(
+      id,proposal_id,actor_type,actor_id,event_type,from_status,to_status,
+      message,visibility,created_at
+    )
+    SELECT
+      id,proposal_id,actor_type,actor_id,event_type,from_status,to_status,
+      message,visibility,created_at
+    FROM proposal_events;
+
+    DROP TABLE proposal_events;
+    ALTER TABLE proposal_events_v18 RENAME TO proposal_events;
+    CREATE INDEX proposal_events_proposal_created
+      ON proposal_events(proposal_id, created_at, id);
+  `);
+}
+
 const MIGRATIONS = [
   migration1,
   migration2,
@@ -1205,6 +1592,13 @@ const MIGRATIONS = [
   migration9,
   migration10,
   migration11,
+  migration12,
+  migration13,
+  migration14,
+  migration15,
+  migration16,
+  migration17,
+  migration18,
 ];
 
 function applyMigrations(db) {
@@ -1827,6 +2221,7 @@ export function openDatabase(config, options = {}) {
     seedPortfolioDemos(db);
   }
   else if (options.bootstrap ?? config.isProduction) bootstrapDraftProject(db);
+  withTransaction(db, () => syncLegacyFinance(db));
   const violations = db.prepare('PRAGMA foreign_key_check').all();
   if (violations.length) {
     db.close();

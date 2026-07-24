@@ -1,4 +1,4 @@
-import { assertSameOrigin, decodeSegment, sendJson } from './http.js';
+import { assertMutationOrigin, decodeSegment, sendJson } from './http.js';
 import { badRequest } from './errors.js';
 import {
   validateNeed,
@@ -24,8 +24,18 @@ function authorizeRead(context, readSession) {
 }
 
 async function authorizeMutation(context, readSession, { body = true } = {}) {
-  assertSameOrigin(context.request, context.config);
-  readSession(context, { csrf: true });
+  assertMutationOrigin(context.request, context.config);
+  const authorization = readSession(context, { csrf: true });
+  const bearerApiKey = /^Bearer\s+hmk_/i.test(
+    String(context.request.headers.authorization || ''),
+  );
+  context.platformAuthorization = bearerApiKey
+    ? {
+      ...authorization,
+      apiKey: authorization?.apiKey || { compatibilityBearer: true },
+      actorType: 'api_key',
+    }
+    : authorization;
   return body ? context.readJson() : null;
 }
 
@@ -233,7 +243,7 @@ export async function routePlatformAdminApi(context, readSession) {
     parts.length === 3 &&
     request.method === 'PATCH'
   ) {
-    assertSameOrigin(request, context.config);
+    assertMutationOrigin(request, context.config);
     const auth = readSession(context, { csrf: true });
     const patch = validateProposalPatch(await context.readJson());
     const result = context.store.updateProposal(
@@ -271,8 +281,18 @@ export async function routePlatformAdminApi(context, readSession) {
     'share-transfers': {
       list: () => platformStore.shareTransfers(projectId),
       create: (input, idempotencyKey) =>
-        platformStore.createShareTransfer(projectId, input, idempotencyKey),
-      patch: (id, input) => platformStore.patchShareTransfer(projectId, id, input),
+        platformStore.createShareTransfer(
+          projectId,
+          input,
+          idempotencyKey,
+          context.platformAuthorization,
+        ),
+      patch: (id, input) => platformStore.patchShareTransfer(
+        projectId,
+        id,
+        input,
+        context.platformAuthorization,
+      ),
       createdKey: 'share-transfer',
       idempotent: true,
     },
@@ -451,7 +471,13 @@ export async function routePlatformAdminApi(context, readSession) {
     ['POST', 'PUT'].includes(request.method)
   ) {
     const input = await authorizeMutation(context, readSession);
-    const result = platformStore.vote(projectId, resourceId, nestedId, input);
+    const result = platformStore.vote(
+      projectId,
+      resourceId,
+      nestedId,
+      input,
+      context.platformAuthorization,
+    );
     publish(context, projectId, 'resolution-vote-recorded');
     sendJson(response, 200, result);
     return true;

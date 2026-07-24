@@ -1,15 +1,30 @@
 services:
   hamsakht:
     build: .
+    image: "${HAMSAKHT_IMAGE:-hamsakht:local}"
     restart: unless-stopped
+    stop_grace_period: 25s
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     env_file:
       - path: .env
         required: false
     ports:
-      - "${PORT:-3000}:${PORT:-3000}"
+      - "127.0.0.1:${HOST_PORT:-3000}:${PORT:-3000}"
     volumes:
       - hamsakht-data:/app/data
       - hamsakht-backups:/app/backups
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
 
 volumes:
   hamsakht-data:

@@ -45,6 +45,7 @@ export default defineConfig({
       HOST: "127.0.0.1",
       PORT: String(port),
       PUBLIC_ORIGIN: baseURL,
+      TRUST_PROXY: '127.0.0.1/32',
       DATABASE_PATH: ":memory:",
       SESSION_SECRET: "test-session-secret-that-is-longer-than-thirty-two-characters",
       ADMIN_DEV_PASSWORD: "hamkari-dev-admin"

@@ -81,8 +81,15 @@ function readSession(context, { required = true, csrf = false } = {}) {
       );
     }
   }
+  context.setAuditActor?.({
+    legacy: true,
+    actorId: session.id,
+    userId: null,
+  });
   return { rawToken, session, csrfToken };
 }
+
+export { readSession as readLegacyAdminSession };
 
 function publish(context, slug, reason) {
   context.broker.publish(slug, null, {
@@ -92,9 +99,38 @@ function publish(context, slug, reason) {
   });
 }
 
+function identityBootstrapCompleted(context) {
+  return Boolean(context.db.prepare(`
+    SELECT 1
+    FROM organization_memberships
+    WHERE role_key='owner' AND status='active'
+    LIMIT 1
+  `).get());
+}
+
 export async function routeAdminApi(context) {
   const { request, response, url, store, config } = context;
   if (!url.pathname.startsWith('/api/v1/admin/')) return false;
+
+  if (identityBootstrapCompleted(context)) {
+    if (
+      url.pathname === '/api/v1/admin/session' &&
+      request.method === 'GET'
+    ) {
+      appendSetCookie(response, expiredAdminCookie(config));
+      sendJson(response, 200, {
+        authenticated: false,
+        disabled: true,
+        workspaceUrl: '/workspace',
+      });
+      return true;
+    }
+    throw new AppError(
+      403,
+      'LEGACY_ADMIN_DISABLED',
+      'پنل قدیمی پس از راه‌اندازی حساب مالک غیرفعال است؛ از فضای کار جدید وارد شوید.',
+    );
+  }
 
   if (url.pathname === '/api/v1/admin/session' && request.method === 'POST') {
     assertSameOrigin(request, config);
@@ -103,6 +139,13 @@ export async function routeAdminApi(context) {
       windowMs: 15 * 60 * 1000,
     });
     const { password } = validateAdminLogin(await context.readJson());
+    if (!context.adminPasswordHash) {
+      throw new AppError(
+        503,
+        'BOOTSTRAP_CREDENTIAL_NOT_CONFIGURED',
+        'اعتبارنامهٔ راه‌اندازی روی سرور تنظیم نشده است.',
+      );
+    }
     if (!verifyPassword(password, context.adminPasswordHash)) {
       throw new AppError(
         401,

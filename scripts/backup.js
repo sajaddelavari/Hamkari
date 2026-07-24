@@ -1,4 +1,11 @@
-import { chmodSync, existsSync, mkdirSync } from 'node:fs';
+import {
+  chmodSync,
+  createReadStream,
+  existsSync,
+  mkdirSync,
+  statSync,
+} from 'node:fs';
+import { createHash } from 'node:crypto';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
@@ -23,6 +30,12 @@ const destinationValue =
 const destinationPath = isAbsolute(destinationValue)
   ? resolve(destinationValue)
   : resolve(process.cwd(), destinationValue);
+
+async function sha256File(path) {
+  const digest = createHash('sha256');
+  for await (const chunk of createReadStream(path)) digest.update(chunk);
+  return digest.digest('hex');
+}
 
 if (!existsSync(sourcePath)) {
   console.error(`Database does not exist: ${sourcePath}`);
@@ -55,10 +68,14 @@ if (!existsSync(sourcePath)) {
   } finally {
     backup.close();
   }
+  const sizeBytes = statSync(destinationPath).size;
+  const sha256 = await sha256File(destinationPath);
   console.log(JSON.stringify({
     status: 'ok',
     source: sourcePath,
     backup: destinationPath,
+    sizeBytes,
+    sha256,
     createdAt: new Date().toISOString(),
   }));
 }

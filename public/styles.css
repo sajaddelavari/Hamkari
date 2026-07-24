@@ -1837,6 +1837,17 @@ p {
   }
 }
 
+.offline-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding-block: 5rem;
+}
+
+.offline-card {
+  width: min(100%, 42rem);
+}
+
 @media (forced-colors: active) {
   .status-badge,
   .button,

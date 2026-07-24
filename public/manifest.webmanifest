@@ -1,0 +1,40 @@
+{
+  "name": "هم‌ساخت — مدیریت مشارکت و پروژه",
+  "short_name": "هم‌ساخت",
+  "description": "پلتفرم مدیریت پروژه، مشارکت، سرمایه، مالی و حاکمیت",
+  "lang": "fa",
+  "dir": "rtl",
+  "start_url": "/projects",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#F6F8F7",
+  "theme_color": "#0F5C47",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "پروژه‌ها",
+      "url": "/projects"
+    },
+    {
+      "name": "بازار فرصت‌ها",
+      "url": "/marketplace"
+    },
+    {
+      "name": "فضای کاری",
+      "url": "/workspace"
+    }
+  ]
+}
