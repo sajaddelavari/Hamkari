@@ -164,8 +164,8 @@
 ## شواهد کنترل کیفیت
 
 آخرین اجرای همین revision در
-[GitHub Actions](https://github.com/sajaddelavari/Hamkari/actions/runs/30242170490)
-برای commit `b10f4b6` در ۲۰۲۶-۰۷-۲۷ سبز است. چهار gate مستقل backend، browser،
+[GitHub Actions](https://github.com/sajaddelavari/Hamkari/actions/runs/30245799780)
+برای commit `d815b87` در ۲۰۲۶-۰۷-۲۷ سبز است. چهار gate مستقل backend، browser،
 Lighthouse و container همگی روی کد منتشرشده اجرا و تکمیل شده‌اند.
 Lighthouse با پروفایل رسمی Desktop Dense‑4G، سه اجرای مستقل و نتیجهٔ میانه
 برای Performance/LCP اجرا شده است؛ بیشترین CLS هر سه اجرا کنترل می‌شود:
@@ -173,7 +173,7 @@ Lighthouse با پروفایل رسمی Desktop Dense‑4G، سه اجرای م�
 | کنترل | نتیجه |
 |---|---:|
 | بررسی نحوی JavaScript | ۷۰ فایل موفق در CI همین revision |
-| تست‌های backend با `node:test` | ۱۰۴ از ۱۰۴ موفق در CI commit `b10f4b6`؛ ۱۰۵ از ۱۰۵ موفق محلی پس از افزودن پوشش همهٔ انواع قاعده و SSE |
+| تست‌های backend با `node:test` | ۱۰۵ از ۱۰۵ موفق در CI همین revision |
 | سناریوهای کامل مرورگر Playwright | ۱۳ از ۱۳ موفق؛ شامل فضای کاری ۱۷‌نما، axe، موبایل و گردش‌های عمیق محصول |
 | GitHub Actions | ۴ از ۴ job موفق: backend، browser، Lighthouse و container |
 | Lighthouse Performance | ۱۰۰ |
@@ -199,6 +199,8 @@ disaster recovery روی سرور مقصد نیستند.
 - job کانتینر در GitHub Actions، build و اجرای image، کاربر non-root،
   filesystem فقط‌خواندنی، graceful timeout، اتصال loopback، ماندگاری داده و
   چرخهٔ واقعی backup/mutation/restore را با موفقیت آزموده است.
+- actionهای checkout و setup-node با SHA دقیق نسخه‌های رسمی دارای runtime
+  Node 24 pin شده‌اند تا هشدار پایان عمر Node 20 و ریسک tag شناور حذف شود.
 - اسکریپت backup و restore دارای کنترل integrity/schema، جلوگیری از overwrite
   ناخواسته، hash خروجی و rollback خودکار است.
 - تنظیمات production، HTTPS در `PUBLIC_ORIGIN` و محدودهٔ صریح
