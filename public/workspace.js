@@ -99,6 +99,7 @@ const labels = {
     planning: "برنامه‌ریزی",
     executing: "در حال اجرا",
     operating: "بهره‌برداری",
+    paused: "متوقف",
     on_hold: "متوقف",
     completed: "تکمیل‌شده",
     cancelled: "لغوشده",
@@ -146,6 +147,13 @@ const labels = {
     held: "برگزارشده",
     partially_filled: "تکمیل جزئی",
     filled: "تکمیل‌شده",
+    submitted: "در انتظار تأیید",
+    ready: "آماده بهره‌برداری",
+    operating: "در بهره‌برداری",
+    attention_required: "نیازمند رسیدگی",
+    suspended: "بهره‌برداری متوقف",
+    waived: "صرف‌نظرشده",
+    not_started: "شروع‌نشده",
   },
   taskPriority: {
     low: "کم",
@@ -192,6 +200,11 @@ const viewMeta = {
   performance: {
     title: "ریسک و شاخص‌ها",
     description: "ریسک‌ها، مسائل، KPIها و تحقق اهداف پروژه را اندازه‌گیری کنید.",
+    permission: "project.read",
+  },
+  readiness: {
+    title: "آمادگی بهره‌برداری",
+    description: "شرایط قطعی شروع بهره‌برداری را با فرایند، فرم، سند، وظیفه و مصوبه کنترل کنید.",
     permission: "project.read",
   },
   finance: {
@@ -443,13 +456,13 @@ function translatedStatus(value) {
 }
 
 function statusTone(value) {
-  if (["accepted", "active", "completed", "done", "approved", "posted", "paid", "verified", "signed", "published", "resolved", "held", "filled", "on_track"].includes(value)) {
+  if (["accepted", "active", "completed", "done", "approved", "posted", "paid", "verified", "signed", "published", "resolved", "held", "filled", "on_track", "ready", "operating"].includes(value)) {
     return "success";
   }
-  if (["rejected", "failed", "blocked", "cancelled", "void", "critical", "off_track"].includes(value)) {
+  if (["rejected", "failed", "blocked", "cancelled", "void", "critical", "off_track", "attention_required"].includes(value)) {
     return "danger";
   }
-  if (["pending", "negotiating", "review", "needs_review", "warning", "partially_filled", "mitigating"].includes(value)) {
+  if (["pending", "negotiating", "review", "needs_review", "warning", "partially_filled", "mitigating", "submitted", "suspended"].includes(value)) {
     return "warning";
   }
   return "";
@@ -6781,6 +6794,518 @@ async function renderSecurity(sequence) {
   );
 }
 
+function readinessTemplatePath(resource = "") {
+  const base = `/api/v2/admin/organizations/${encodeURIComponent(state.organizationId)}/readiness-templates`;
+  return resource ? `${base}/${resource}` : base;
+}
+
+function readinessActionLabel(value) {
+  return ({
+    manual: "اقدام دستی",
+    form: "تکمیل فرم",
+    document: "ارائه سند معتبر",
+    task: "تکمیل وظیفه اجرایی",
+    resolution: "تصویب مصوبه",
+  })[value] || value;
+}
+
+function readinessRuleLabel(rule) {
+  if (rule.label) return rule.label;
+  return ({
+    manual_checkbox: "تأیید چک‌باکس",
+    form_field: "شرط پاسخ فرم",
+    document_exists: "وجود سند معتبر",
+    task_status: "تکمیل وظیفه",
+    resolution_approved: "تصویب مصوبه با حدنصاب",
+  })[rule.type] || rule.type;
+}
+
+function openReadinessTemplateDialog(template = null) {
+  openEntityDialog({
+    kicker: template ? "ویرایش الگوی سازمان" : "الگوی قابل استفاده مجدد",
+    title: template ? template.name : "قالب فرایند جدید",
+    submitLabel: template ? "ذخیره قالب" : "ساخت قالب",
+    initial: template || { active: true },
+    fields: [
+      { name: "name", label: "نام قالب", required: true, maxLength: 200, placeholder: "مثلاً راه‌اندازی واحد تولیدی" },
+      { name: "description", label: "هدف و دامنه", type: "textarea", rows: 3, maxLength: 3000 },
+      { name: "projectKind", label: "نوع پروژه", maxLength: 120, placeholder: "اختیاری؛ مثلاً کارخانه" },
+      { name: "industry", label: "صنعت", maxLength: 120, placeholder: "اختیاری؛ مثلاً تولید" },
+      { name: "active", label: "قالب فعال و قابل انتخاب باشد", type: "checkbox" },
+    ],
+    note: "اگر نوع پروژه و صنعت خالی باشد، قالب برای همهٔ پروژه‌های سازمان قابل استفاده است.",
+    onSubmit: async (values) => {
+      await api(readinessTemplatePath(template ? encodeURIComponent(template.id) : ""), {
+        method: template ? "PATCH" : "POST",
+        body: values,
+      });
+      toast(template ? "قالب به‌روزرسانی شد." : "قالب ساخته شد؛ اکنون مراحل آن را تعریف کنید.");
+      await navigate("readiness", { replace: true });
+    },
+  });
+}
+
+function linkedReadinessRule(step, type) {
+  return (step?.gateRules || []).find((rule) => rule.type === type) || null;
+}
+
+function openReadinessStepDialog(template, context, step = null) {
+  const taskRule = linkedReadinessRule(step, "task_status");
+  const resolutionRule = linkedReadinessRule(step, "resolution_approved");
+  openEntityDialog({
+    kicker: step ? "ویرایش مرحلهٔ قالب" : "طراحی گردش کار",
+    title: step ? step.title : "مرحلهٔ جدید",
+    submitLabel: step ? "ذخیره مرحله" : "افزودن مرحله",
+    initial: {
+      ...(step || { position: (template.steps?.length || 0) + 1, actionType: "form", required: true }),
+      taskId: taskRule?.taskId || "",
+      resolutionId: resolutionRule?.resolutionId || "",
+    },
+    fields: [
+      { name: "title", label: "عنوان مرحله", required: true, maxLength: 240 },
+      { name: "description", label: "توضیح و معیار انجام", type: "textarea", rows: 3, maxLength: 3000 },
+      { name: "position", label: "ترتیب", type: "number", min: 0, max: 10000, step: 1, required: true },
+      {
+        name: "actionType",
+        label: "نوع اقدام",
+        type: "select",
+        options: ["form", "manual", "document", "task", "resolution"].map((value) => ({ value, label: readinessActionLabel(value) })),
+      },
+      {
+        name: "taskId",
+        label: "وظیفهٔ مرتبط (فقط برای نوع وظیفه)",
+        type: "select",
+        options: [{ value: "", label: "انتخاب نشده" }, ...(context.tasks || []).map((item) => ({ value: item.id, label: item.title }))],
+      },
+      {
+        name: "resolutionId",
+        label: "مصوبهٔ مرتبط (فقط برای نوع مصوبه)",
+        type: "select",
+        options: [{ value: "", label: "انتخاب نشده" }, ...(context.resolutions || []).map((item) => ({ value: item.id, label: item.title }))],
+      },
+      { name: "required", label: "مرحله برای بهره‌برداری الزامی است", type: "checkbox" },
+      { name: "approvalRequired", label: "پس از ارسال، تأیید جداگانه مدیر لازم است", type: "checkbox" },
+    ],
+    note: "برای مرحلهٔ وظیفه یا مصوبه، رکورد مرتبط را انتخاب کنید. فرم مرحله را پس از ذخیره با افزودن فیلد می‌سازید.",
+    onSubmit: async (values) => {
+      const gateRules = (step?.gateRules || []).filter((rule) => !["task_status", "resolution_approved", "document_exists"].includes(rule.type));
+      if (values.actionType === "task") {
+        if (!values.taskId) throw new Error("برای این نوع مرحله یک وظیفه انتخاب کنید.");
+        gateRules.push({ type: "task_status", taskId: values.taskId, status: "done", label: "وظیفهٔ اجرایی تکمیل شده باشد" });
+      }
+      if (values.actionType === "resolution") {
+        if (!values.resolutionId) throw new Error("برای این نوع مرحله یک مصوبه انتخاب کنید.");
+        gateRules.push({ type: "resolution_approved", resolutionId: values.resolutionId, label: "مصوبه با حدنصاب تصویب شده باشد" });
+      }
+      if (values.actionType === "document") {
+        gateRules.push({ type: "document_exists", label: "سند فعال و دارای نسخه پیوست شده باشد" });
+      }
+      await api(readinessTemplatePath(`${encodeURIComponent(template.id)}/steps${step ? `/${encodeURIComponent(step.id)}` : ""}`), {
+        method: step ? "PATCH" : "POST",
+        body: {
+          title: values.title,
+          description: values.description,
+          position: values.position,
+          actionType: values.actionType,
+          required: values.required,
+          approvalRequired: values.approvalRequired,
+          formSchema: step?.formSchema || [],
+          gateRules,
+        },
+      });
+      toast(step ? "مرحله به‌روزرسانی شد." : "مرحله به قالب اضافه شد.");
+      await navigate("readiness", { replace: true });
+    },
+  });
+}
+
+function readinessRuleValue(value, fieldType, operator) {
+  if (["filled", "true"].includes(operator)) return null;
+  if (operator === "in") return String(value || "").split(",").map((item) => item.trim()).filter(Boolean);
+  if (fieldType === "number") return Number(value);
+  if (fieldType === "checkbox") return String(value).toLowerCase() === "true";
+  return value;
+}
+
+function openReadinessFieldDialog(template, step, field = null) {
+  const existingRule = (step.gateRules || []).find((rule) => rule.fieldKey === field?.key);
+  openEntityDialog({
+    kicker: field ? "ویرایش فرم مرحله" : "فرم مرحله",
+    title: field ? field.label : "فیلد جدید",
+    submitLabel: field ? "ذخیره فیلد" : "افزودن فیلد",
+    initial: {
+      ...(field || { type: "text", required: true }),
+      optionsText: (field?.options || []).join("، "),
+      gateRequired: Boolean(existingRule),
+      gateOperator: existingRule?.type === "manual_checkbox" ? "true" : existingRule?.operator || "filled",
+      gateValue: Array.isArray(existingRule?.value) ? existingRule.value.join(", ") : existingRule?.value ?? "",
+    },
+    fields: [
+      { name: "key", label: "کلید فنی کوتاه", required: true, pattern: "[A-Za-z][A-Za-z0-9_]{0,63}", dir: "ltr", placeholder: "licenseApproved" },
+      { name: "label", label: "عنوانی که کاربر می‌بیند", required: true, maxLength: 160 },
+      {
+        name: "type",
+        label: "نوع پاسخ",
+        type: "select",
+        options: [
+          ["text", "متن کوتاه"], ["textarea", "متن چندخطی"], ["number", "عدد"],
+          ["date", "تاریخ"], ["select", "انتخاب از فهرست"], ["checkbox", "تأیید بله/خیر"],
+        ].map(([value, label]) => ({ value, label })),
+      },
+      { name: "optionsText", label: "گزینه‌ها (برای فهرست انتخابی)", placeholder: "گزینه اول، گزینه دوم" },
+      { name: "help", label: "راهنمای تکمیل", maxLength: 300 },
+      { name: "min", label: "حداقل عدد", type: "number", step: 0.01 },
+      { name: "max", label: "حداکثر عدد", type: "number", step: 0.01 },
+      { name: "maxLength", label: "حداکثر طول متن", type: "number", min: 1, max: 20000, value: field?.maxLength || 2000 },
+      { name: "required", label: "پاسخ این فیلد الزامی است", type: "checkbox" },
+      { name: "gateRequired", label: "پاسخ این فیلد شرط عبور مرحله باشد", type: "checkbox" },
+      {
+        name: "gateOperator",
+        label: "شرط عبور",
+        type: "select",
+        options: [
+          ["filled", "پر شده باشد"], ["true", "تأیید شده باشد"], ["eq", "برابر باشد با"],
+          ["neq", "برابر نباشد با"], ["gte", "بزرگ‌تر یا مساوی"], ["lte", "کوچک‌تر یا مساوی"], ["in", "یکی از مقادیر باشد"],
+        ].map(([value, label]) => ({ value, label })),
+      },
+      { name: "gateValue", label: "مقدار شرط (در صورت نیاز)", placeholder: "برای چند مقدار، با ویرگول جدا کنید" },
+    ],
+    onSubmit: async (values) => {
+      const normalized = {
+        key: values.key,
+        label: values.label,
+        type: values.type,
+        required: values.required,
+        options: values.type === "select" ? values.optionsText.split(/[،,]/).map((item) => item.trim()).filter(Boolean) : [],
+        min: values.min,
+        max: values.max,
+        maxLength: values.maxLength || 2000,
+        help: values.help,
+      };
+      const formSchema = [...(step.formSchema || [])];
+      const index = formSchema.findIndex((item) => item.key === field?.key);
+      if (index >= 0) formSchema[index] = normalized;
+      else formSchema.push(normalized);
+      const gateRules = (step.gateRules || []).filter((rule) => rule.fieldKey !== field?.key && rule.fieldKey !== values.key);
+      if (values.gateRequired) {
+        if (!["filled", "true"].includes(values.gateOperator) && !String(values.gateValue || "").trim()) {
+          throw new Error("برای شرط انتخاب‌شده، مقدار مقایسه را وارد کنید.");
+        }
+        if (values.type === "checkbox" && values.gateOperator === "true") {
+          gateRules.push({ type: "manual_checkbox", fieldKey: values.key, label: `${values.label} تأیید شده باشد` });
+        } else {
+          gateRules.push({
+            type: "form_field",
+            fieldKey: values.key,
+            operator: values.gateOperator,
+            value: readinessRuleValue(values.gateValue, values.type, values.gateOperator),
+            label: `شرط «${values.label}» برقرار باشد`,
+          });
+        }
+      }
+      await api(readinessTemplatePath(`${encodeURIComponent(template.id)}/steps/${encodeURIComponent(step.id)}`), {
+        method: "PATCH",
+        body: { formSchema, gateRules },
+      });
+      toast(field ? "فیلد فرم به‌روزرسانی شد." : "فیلد به فرم مرحله اضافه شد.");
+      await navigate("readiness", { replace: true });
+    },
+  });
+}
+
+async function removeReadinessField(template, step, field) {
+  if (!window.confirm(`فیلد «${field.label}» از فرم حذف شود؟`)) return;
+  await api(readinessTemplatePath(`${encodeURIComponent(template.id)}/steps/${encodeURIComponent(step.id)}`), {
+    method: "PATCH",
+    body: {
+      formSchema: step.formSchema.filter((item) => item.key !== field.key),
+      gateRules: step.gateRules.filter((rule) => rule.fieldKey !== field.key),
+    },
+  });
+  toast("فیلد حذف شد.");
+  await navigate("readiness", { replace: true });
+}
+
+async function removeReadinessStep(template, step) {
+  if (!window.confirm(`مرحلهٔ «${step.title}» از قالب حذف شود؟ فرایندهای قبلی تغییر نمی‌کنند.`)) return;
+  await api(readinessTemplatePath(`${encodeURIComponent(template.id)}/steps/${encodeURIComponent(step.id)}`), { method: "DELETE" });
+  toast("مرحله از قالب حذف شد.");
+  await navigate("readiness", { replace: true });
+}
+
+function readinessTemplateCard(template, context, canManageOrganization, canManageProject, initialized) {
+  const steps = node("div", { className: "ws-readiness-template-steps" });
+  for (const step of template.steps || []) {
+    const fields = node("div", { className: "ws-readiness-fields" }, (step.formSchema || []).map((field) =>
+      node("span", { className: "ws-readiness-field" }, [
+        node("button", { type: "button", text: field.label, onclick: canManageOrganization ? () => openReadinessFieldDialog(template, step, field) : null }),
+        canManageOrganization ? node("button", { type: "button", className: "ws-readiness-field__remove", text: "×", title: "حذف فیلد", onclick: () => removeReadinessField(template, step, field) }) : null,
+      ].filter(Boolean))));
+    steps.append(node("article", { className: "ws-readiness-template-step" }, [
+      node("div", { className: "ws-readiness-template-step__head" }, [
+        node("div", {}, [node("strong", { text: step.title }), node("small", { text: `${faNumber(step.position)} · ${readinessActionLabel(step.actionType)}` })]),
+        node("div", { className: "ws-inline-actions" }, [
+          statusChip(step.required ? "active" : "inactive", step.required ? "الزامی" : "اختیاری"),
+          step.approvalRequired ? statusChip("pending", "تأیید مدیر") : null,
+        ].filter(Boolean)),
+      ]),
+      step.description ? node("p", { text: step.description }) : null,
+      fields,
+      canManageOrganization ? node("div", { className: "ws-inline-actions" }, [
+        button("فیلد فرم", { variant: "ghost", onClick: () => openReadinessFieldDialog(template, step) }),
+        button("ویرایش", { variant: "ghost", onClick: () => openReadinessStepDialog(template, context, step) }),
+        button("حذف", { variant: "ghost", onClick: () => removeReadinessStep(template, step) }),
+      ]) : null,
+    ].filter(Boolean)));
+  }
+  if (!(template.steps || []).length) {
+    steps.append(node("p", { className: "ws-muted-copy", text: "هنوز مرحله‌ای برای این قالب تعریف نشده است." }));
+  }
+  return node("article", { className: "ws-readiness-template" }, [
+    node("div", { className: "ws-readiness-template__head" }, [
+      node("div", {}, [
+        node("h3", { text: template.name }),
+        node("p", { text: template.description || "قالب عمومی آمادگی بهره‌برداری" }),
+      ]),
+      statusChip(template.active ? "active" : "inactive", template.active ? `نسخه ${faNumber(template.version)}` : "غیرفعال"),
+    ]),
+    node("div", { className: "ws-readiness-template__meta" }, [
+      node("span", { text: template.projectKind || "همه انواع پروژه" }),
+      node("span", { text: template.industry || "همه صنایع" }),
+      node("span", { text: `${faNumber(template.steps?.length || 0)} مرحله` }),
+    ]),
+    steps,
+    node("div", { className: "ws-readiness-template__actions" }, [
+      canManageOrganization ? button("مرحله جدید", { onClick: () => openReadinessStepDialog(template, context) }) : null,
+      canManageOrganization ? button("ویرایش قالب", { variant: "ghost", onClick: () => openReadinessTemplateDialog(template) }) : null,
+      !initialized && canManageProject && template.active && template.steps?.length
+        ? button("شروع برای این پروژه", {
+          variant: "primary",
+          onClick: async () => {
+            if (!window.confirm(`فرایند «${template.name}» برای پروژه آغاز شود؟ مراحل به‌صورت نسخه ثابت ثبت می‌شوند.`)) return;
+            await api(projectPath("readiness/initialize"), { method: "POST", body: { templateId: template.id, participationRequired: true } });
+            toast("فرایند آمادگی پروژه آغاز شد.");
+            await loadWorkspace({ organizationId: state.organizationId, projectId: state.projectId });
+          },
+        }) : null,
+    ].filter(Boolean)),
+  ]);
+}
+
+function openReadinessSubmission(step, documents) {
+  const schemaFields = (step.formSchema || []).map((field) => ({
+    name: field.key,
+    label: field.label,
+    type: field.type,
+    required: field.required,
+    options: field.type === "select" ? field.options.map((value) => ({ value, label: value })) : undefined,
+    min: field.min,
+    max: field.max,
+    maxLength: field.maxLength,
+    help: field.help,
+    rows: field.type === "textarea" ? 4 : undefined,
+  }));
+  const needsDocument = step.actionType === "document" || step.gateRules.some((rule) => rule.type === "document_exists");
+  openEntityDialog({
+    kicker: "اجرای مرحلهٔ بهره‌برداری",
+    title: step.title,
+    submitLabel: step.approvalRequired ? "ارسال برای تأیید" : "ثبت انجام مرحله",
+    initial: { ...(step.submission?.values || {}), note: step.note || "", evidenceDocumentId: step.evidenceDocumentId || "" },
+    fields: [
+      ...schemaFields,
+      ...(needsDocument ? [{
+        name: "evidenceDocumentId",
+        label: "سند شاهد",
+        type: "select",
+        required: true,
+        options: [{ value: "", label: "انتخاب سند فعال" }, ...documents.map((item) => ({ value: item.id, label: item.title }))],
+      }] : []),
+      { name: "note", label: "یادداشت اجرا", type: "textarea", rows: 3, maxLength: 3000 },
+    ],
+    note: step.approvalRequired ? "پس از ارسال، مدیر پروژه باید این مرحله را جداگانه تأیید کند." : "قواعد مرحله هنگام ثبت، دوباره با داده‌های واقعی پروژه کنترل می‌شوند.",
+    onSubmit: async (values) => {
+      const evidenceDocumentId = values.evidenceDocumentId || "";
+      const note = values.note || "";
+      delete values.evidenceDocumentId;
+      delete values.note;
+      await api(projectPath(`readiness/steps/${encodeURIComponent(step.id)}/submit`), {
+        method: "POST",
+        body: { values, evidenceDocumentId, note },
+      });
+      toast(step.approvalRequired ? "مرحله برای تأیید ارسال شد." : "مرحله تکمیل شد.");
+      await navigate("readiness", { replace: true });
+    },
+  });
+}
+
+function openReadinessReopen(step) {
+  openEntityDialog({
+    kicker: "کنترل تغییرات",
+    title: `بازگشایی «${step.title}»`,
+    submitLabel: "بازگشایی مرحله",
+    fields: [{ name: "note", label: "دلیل بازگشایی", type: "textarea", rows: 4, required: true, minLength: 1, maxLength: 3000 }],
+    onSubmit: async (values) => {
+      await api(projectPath(`readiness/steps/${encodeURIComponent(step.id)}/reopen`), { method: "POST", body: values });
+      toast("مرحله برای اصلاح بازگشایی شد.");
+      await navigate("readiness", { replace: true });
+    },
+  });
+}
+
+function openReadinessSuspend() {
+  openEntityDialog({
+    kicker: "تصمیم حساس",
+    title: "توقف بهره‌برداری پروژه",
+    submitLabel: "ثبت توقف بهره‌برداری",
+    fields: [{ name: "note", label: "دلیل و اقدام اصلاحی", type: "textarea", rows: 5, required: true, maxLength: 3000 }],
+    note: "پروژه به وضعیت متوقف منتقل می‌شود و این تصمیم در تاریخچهٔ غیرقابل‌انکار ثبت خواهد شد.",
+    onSubmit: async (values) => {
+      await api(projectPath("readiness/suspend"), { method: "POST", body: values });
+      toast("بهره‌برداری پروژه متوقف و دلیل ثبت شد.");
+      await loadWorkspace({ organizationId: state.organizationId, projectId: state.projectId });
+      await navigate("readiness", { replace: true });
+    },
+  });
+}
+
+function readinessRunStepCard(step, canManageProject, runStatus, documents) {
+  const locked = runStatus === "operating";
+  const actions = [];
+  if (canManageProject && !locked && ["pending", "in_progress", "submitted"].includes(step.status)) {
+    actions.push(button(step.status === "submitted" ? "اصلاح و ارسال دوباره" : "انجام مرحله", { variant: "primary", onClick: () => openReadinessSubmission(step, documents) }));
+  }
+  if (canManageProject && !locked && step.status === "submitted" && step.approvalRequired) {
+    actions.push(button("تأیید مدیر", {
+      onClick: async () => {
+        if (!window.confirm(`مرحلهٔ «${step.title}» تأیید شود؟`)) return;
+        await api(projectPath(`readiness/steps/${encodeURIComponent(step.id)}/approve`), { method: "POST", body: {} });
+        toast("مرحله تأیید شد.");
+        await navigate("readiness", { replace: true });
+      },
+    }));
+  }
+  if (canManageProject && !locked && ["completed", "submitted", "blocked", "waived"].includes(step.status)) {
+    actions.push(button("بازگشایی", { variant: "ghost", onClick: () => openReadinessReopen(step) }));
+  }
+  return node("article", { className: `ws-readiness-step${step.passed ? " is-complete" : ""}` }, [
+    node("div", { className: "ws-readiness-step__index", text: faNumber(step.position) }),
+    node("div", { className: "ws-readiness-step__body" }, [
+      node("div", { className: "ws-readiness-step__head" }, [
+        node("div", {}, [node("h3", { text: step.title }), node("small", { text: readinessActionLabel(step.actionType) })]),
+        statusChip(step.status),
+      ]),
+      step.description ? node("p", { text: step.description }) : null,
+      step.rules.length ? node("div", { className: "ws-readiness-rules" }, step.rules.map((rule) =>
+        node("div", { className: rule.passed ? "is-passed" : "is-failed" }, [
+          node("span", { text: rule.passed ? "✓" : "!" }),
+          node("div", {}, [node("strong", { text: readinessRuleLabel(rule) }), node("small", { text: rule.message })]),
+        ]))) : null,
+      step.note ? node("blockquote", { text: step.note }) : null,
+      actions.length ? node("div", { className: "ws-inline-actions" }, actions) : null,
+    ].filter(Boolean)),
+  ]);
+}
+
+async function renderReadiness(sequence) {
+  const organizationId = state.organizationId;
+  const [readiness, templateResult, taskResult, meetingResult, documentResult] = await Promise.all([
+    api(projectPath("readiness")),
+    api(readinessTemplatePath()),
+    optionalApi(projectPath("tasks")),
+    optionalApi(projectPath("meetings")),
+    optionalApi(projectPath("documents")),
+  ]);
+  if (!ensureSequence(sequence)) return;
+  const templates = templateResult.templates || [];
+  const context = {
+    tasks: taskResult?.tasks || [],
+    resolutions: (meetingResult?.meetings || []).flatMap((meeting) => meeting.resolutions || []),
+  };
+  const documents = (documentResult?.documents || []).filter((item) => item.status === "active" && Number(item.currentVersionNo || 0) > 0);
+  const canManageOrganization = hasOrganizationPermission("organization.manage");
+  const canManageProject = hasPermission("project.manage");
+  setPageActions([
+    canManageOrganization ? button("قالب فرایند جدید", { onClick: () => openReadinessTemplateDialog() }) : null,
+    readiness.initialized && canManageProject && readiness.run?.status === "operating"
+      ? button("توقف بهره‌برداری", { variant: "danger", onClick: openReadinessSuspend }) : null,
+    readiness.initialized && canManageProject && readiness.eligibleToOperate && readiness.run?.status !== "operating"
+      ? button("فعال‌سازی بهره‌برداری", {
+        variant: "primary",
+        onClick: async () => {
+          if (!window.confirm("همه شروط برقرار است. وضعیت پروژه به «بهره‌برداری» منتقل شود؟")) return;
+          await api(projectPath("readiness/activate"), { method: "POST" });
+          toast("پروژه به بهره‌برداری رسید.");
+          await loadWorkspace({ organizationId, projectId: state.projectId });
+          await navigate("readiness", { replace: true });
+        },
+      }) : null,
+  ]);
+
+  const templateGrid = node("div", { className: "ws-readiness-templates" }, templates.map((template) =>
+    readinessTemplateCard(template, context, canManageOrganization, canManageProject, readiness.initialized)));
+  if (!templates.length) {
+    templateGrid.append(emptyState(
+      "قالبی برای بهره‌برداری تعریف نشده است",
+      "یک قالب سازمانی بسازید، مراحل را بچینید و فرم و شروط هر مرحله را بدون کدنویسی تعریف کنید.",
+      { action: canManageOrganization ? button("ساخت نخستین قالب", { variant: "primary", onClick: () => openReadinessTemplateDialog() }) : null },
+    ));
+  }
+
+  if (!readiness.initialized) {
+    dom.pageBody.replaceChildren(
+      node("section", { className: "ws-readiness-hero" }, [
+        node("div", {}, [
+          node("span", { className: "ws-kicker", text: "دروازهٔ شروع عملیات" }),
+          node("h2", { text: "بهره‌برداری یک وضعیت دستی نیست" }),
+          node("p", { text: "پس از قطعی‌شدن مشارکت‌ها، پروژه باید از شروط اجرایی، حقوقی و مدیریتی تعریف‌شده عبور کند. یک قالب مناسب را انتخاب یا قالب تازه‌ای طراحی کنید." }),
+        ]),
+        node("div", { className: "ws-readiness-hero__mark", text: "۰٪" }),
+      ]),
+      node("div", { className: "ws-section-heading" }, [node("div", {}, [node("h2", { text: "قالب‌های فرایند" }), node("p", { text: "قالب بر اساس نوع پروژه و صنعت قابل استفاده مجدد است." })])]),
+      templateGrid,
+    );
+    return;
+  }
+
+  const run = readiness.run;
+  const effectiveStatus = run.effectiveStatus || run.status;
+  if (effectiveStatus === "attention_required") {
+    showPageAlert("یکی از شروط پروژه پس از شروع بهره‌برداری از اعتبار افتاده است. موضوع را بررسی و در صورت لزوم بهره‌برداری را با ثبت دلیل متوقف کنید.", "error");
+  }
+  const steps = node("div", { className: "ws-readiness-run" }, readiness.steps.map((step) =>
+    readinessRunStepCard(step, canManageProject, run.status, documents)));
+  const blockers = node("div", { className: "ws-readiness-blockers" }, (readiness.blockers || []).map((blocker) =>
+    node("div", {}, [node("span", { text: "!" }), node("p", { text: blocker.message })])));
+  const eventTable = dataTable([
+    { label: "رویداد", title: true, render: (item) => titleCell(({
+      initialized: "شروع فرایند", submitted: "ارسال مرحله", approved: "تأیید مرحله", completed: "تکمیل مرحله",
+      reopened: "بازگشایی مرحله", ready: "آماده بهره‌برداری", activated: "شروع بهره‌برداری",
+      suspended: "توقف بهره‌برداری", evaluation_failed: "ارزیابی ناموفق",
+    })[item.eventType] || item.eventType, item.note) },
+    { label: "تغییر وضعیت", render: (item) => item.toStatus ? `${translatedStatus(item.fromStatus)} ← ${translatedStatus(item.toStatus)}` : "—" },
+    { label: "زمان", render: (item) => faDate(item.createdAt, true) },
+  ], readiness.events || []);
+  dom.pageBody.replaceChildren(
+    node("div", { className: "ws-metric-grid" }, [
+      metricCard("وضعیت دروازه", translatedStatus(effectiveStatus), run.templateName, "◈"),
+      metricCard("مشارکت قطعی", faPercent(readiness.participation.percent), `${faNumber(readiness.participation.committedNeeds)} از ${faNumber(readiness.participation.totalNeeds)} نیاز`, "◌"),
+      metricCard("مراحل الزامی", `${faNumber(readiness.progress.completedRequiredSteps)} / ${faNumber(readiness.progress.totalRequiredSteps)}`, faPercent(readiness.progress.percent), "✓"),
+      metricCard("مجوز شروع", readiness.eligibleToOperate ? "برقرار" : "مسدود", readiness.eligibleToOperate ? "همه شروط معتبر است" : `${faNumber(readiness.blockers.length)} مانع باقی مانده`, readiness.eligibleToOperate ? "✓" : "!"),
+    ]),
+    blockers.childElementCount ? blockers : node("div", { className: "ws-alert ws-alert--success", text: "همهٔ شروط لازم برقرار است؛ مدیر پروژه می‌تواند بهره‌برداری را فعال کند." }),
+    node("div", { className: "ws-section-heading" }, [node("div", {}, [node("h2", { text: "مراحل اجرایی" }), node("p", { text: `نسخه ${faNumber(run.templateVersion)} از قالب «${run.templateName}»` })])]),
+    steps,
+    node("details", { className: "ws-readiness-history" }, [
+      node("summary", { text: `تاریخچهٔ ممیزی (${faNumber(readiness.events?.length || 0)} رویداد)` }),
+      eventTable,
+    ]),
+    node("details", { className: "ws-readiness-history" }, [
+      node("summary", { text: `مدیریت قالب‌های سازمان (${faNumber(templates.length)})` }),
+      templateGrid,
+    ]),
+  );
+}
+
 const viewRenderers = {
   overview: renderOverview,
   portfolio: renderPortfolio,
@@ -6788,6 +7313,7 @@ const viewRenderers = {
   execution: renderExecution,
   resources: renderResources,
   performance: renderPerformance,
+  readiness: renderReadiness,
   finance: renderFinance,
   capital: renderCapital,
   governance: renderGovernance,

@@ -320,6 +320,51 @@ provider مجاز از تنظیم سرور می‌آید. body نمی‌توان
 منتقل کند. `finalize-outcome` نتیجه، حدنصاب و وضعیت `closed` را اتمیک ثبت
 می‌کند و پس از آن رأی تازه پذیرفته نمی‌شود.
 
+## آمادگی بهره‌برداری
+
+قالب‌ها در scope سازمان و اجرای فرایند در scope پروژه قرار دارد.
+
+```text
+GET/POST   /api/v2/admin/organizations/:organizationId/readiness-templates
+GET/PATCH  /api/v2/admin/organizations/:organizationId/readiness-templates/:templateId
+DELETE     /api/v2/admin/organizations/:organizationId/readiness-templates/:templateId
+POST       /api/v2/admin/organizations/:organizationId/readiness-templates/:templateId/steps
+PATCH/DELETE /api/v2/admin/organizations/:organizationId/readiness-templates/:templateId/steps/:stepId
+
+GET  /api/v2/admin/projects/:projectId/readiness
+POST /api/v2/admin/projects/:projectId/readiness/initialize
+GET  /api/v2/admin/projects/:projectId/readiness/evaluate
+POST /api/v2/admin/projects/:projectId/readiness/steps/:stepId/submit
+POST /api/v2/admin/projects/:projectId/readiness/steps/:stepId/approve
+POST /api/v2/admin/projects/:projectId/readiness/steps/:stepId/reopen
+POST /api/v2/admin/projects/:projectId/readiness/activate
+POST /api/v2/admin/projects/:projectId/readiness/suspend
+```
+
+- مشاهده به `organization.read/project.read` و طراحی قالب به
+  `organization.manage` نیاز دارد.
+- initialize، ارسال/تأیید مرحله، فعال‌سازی و توقف به `project.manage` نیاز
+  دارند. فعال‌سازی، تأیید و بازگشایی مرحله و توقف بهره‌برداری برای API key
+  ممنوع و فقط با نشست تعاملی مجاز است.
+- initialize با `templateId` صریح یا انتخاب خودکار دقیق‌ترین قالب فعال بر اساس
+  `project.kind` و `project.industry` انجام می‌شود و فقط یک بار مجاز است.
+- `activate` در صورت مشارکت کمتر از ۱۰۰٪، نبود مرحلهٔ الزامی، مرحلهٔ ناقص یا
+  قاعدهٔ نامعتبر با `409 PROJECT_NOT_READY_TO_OPERATE` رد می‌شود.
+- تغییر معمول پروژه به `lifecycle/stage=operating` با
+  `409 READINESS_REQUIRED` و خروج مستقیم با
+  `409 READINESS_TRANSITION_REQUIRED` رد می‌شود.
+- response پروژهٔ عمومی فقط خلاصهٔ تجمیعی آمادگی را دریافت می‌کند؛ پاسخ فرم،
+  سند شاهد و تاریخچهٔ داخلی عمومی نمی‌شوند.
+
+### فرم و قواعد مرحله
+
+`formSchema` آرایه‌ای با حداکثر ۳۰ فیلد از نوع
+`text/textarea/number/date/select/checkbox` است. کلید هر فیلد باید یکتا و با
+الگوی `[A-Za-z][A-Za-z0-9_]{0,63}` باشد. `gateRules` نیز حداکثر ۳۰ قاعده از
+نوع `manual_checkbox/form_field/document_exists/task_status/resolution_approved`
+می‌پذیرد. شناسهٔ سند، وظیفه و مصوبه هنگام ارزیابی با همان پروژه دوباره scope
+می‌شود.
+
 ## اسناد، نظر و گزارش
 
 ### سند

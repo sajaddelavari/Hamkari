@@ -48,6 +48,7 @@ test.describe('فضای کاری سازمانی', () => {
       'execution',
       'resources',
       'performance',
+      'readiness',
       'finance',
       'capital',
       'governance',

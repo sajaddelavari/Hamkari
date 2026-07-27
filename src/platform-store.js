@@ -491,6 +491,7 @@ export function createPlatformStore(
     audit: enterpriseAudit = null,
     operationsStore = null,
     financeStore = null,
+    readinessStore = null,
   } = {},
 ) {
   function requireProject(id, { publicOnly = false, includeArchived = false } = {}) {
@@ -1357,6 +1358,13 @@ export function createPlatformStore(
       'lifecycle',
       'planning',
     );
+    const stage = enumValue(input.stage, PROJECT_STAGES, 'stage', 'idea');
+    if (lifecycle === 'operating' || stage === 'operating') {
+      throw conflict(
+        'READINESS_REQUIRED',
+        'وضعیت بهره‌برداری فقط پس از تکمیل و فعال‌سازی فرایند آمادگی قابل انتخاب است.',
+      );
+    }
     const plannedEndDate =
       optionalIsoDate(input.plannedEndDate, 'plannedEndDate') ?? null;
     const actualEndDate =
@@ -1394,7 +1402,7 @@ export function createPlatformStore(
         text(input.industry, 'industry', { max: 120 }),
         text(input.sector, 'sector', { max: 120 }),
         text(input.kind, 'kind', { max: 120 }),
-        enumValue(input.stage, PROJECT_STAGES, 'stage', 'idea'),
+        stage,
         currencyValue(input.currency),
         budgetAmount,
         valuationAmount,
@@ -1486,6 +1494,34 @@ export function createPlatformStore(
       'lifecycle',
       current.lifecycle,
     );
+    const stage = enumValue(input.stage, PROJECT_STAGES, 'stage', current.stage);
+    const readinessRun = db.prepare(`
+      SELECT status FROM project_readiness_runs WHERE project_id=?
+    `).get(id);
+    if (
+      (lifecycle === 'operating' || stage === 'operating') &&
+      readinessRun?.status !== 'operating'
+    ) {
+      throw conflict(
+        'READINESS_REQUIRED',
+        'وضعیت بهره‌برداری فقط از مسیر تأیید نهایی فرایند آمادگی قابل فعال‌سازی است.',
+      );
+    }
+    if (
+      readinessRun?.status === 'operating' &&
+      (lifecycle !== 'operating' || stage !== 'operating')
+    ) {
+      throw conflict(
+        'READINESS_TRANSITION_REQUIRED',
+        'برای خروج از بهره‌برداری، عملیات «توقف بهره‌برداری» را با ثبت دلیل انجام دهید.',
+      );
+    }
+    if (readinessRun?.status === 'operating' && archiveFlag === true) {
+      throw conflict(
+        'READINESS_TRANSITION_REQUIRED',
+        'پیش از بایگانی پروژه، بهره‌برداری را با ثبت دلیل متوقف کنید.',
+      );
+    }
     const plannedEndDate = input.plannedEndDate === undefined
       ? current.planned_end_date
       : optionalIsoDate(input.plannedEndDate, 'plannedEndDate');
@@ -1529,7 +1565,7 @@ export function createPlatformStore(
           ? current.sector
           : text(input.sector, 'sector', { max: 120 }),
         input.kind === undefined ? current.kind : text(input.kind, 'kind', { max: 120 }),
-        enumValue(input.stage, PROJECT_STAGES, 'stage', current.stage),
+        stage,
         input.currency === undefined
           ? current.currency
           : currencyValue(input.currency),
@@ -1571,6 +1607,15 @@ export function createPlatformStore(
 
   function archiveProject(id) {
     requireProject(id);
+    const readinessRun = db.prepare(`
+      SELECT status FROM project_readiness_runs WHERE project_id=?
+    `).get(id);
+    if (readinessRun?.status === 'operating') {
+      throw conflict(
+        'READINESS_TRANSITION_REQUIRED',
+        'پیش از بایگانی پروژه، بهره‌برداری را با ثبت دلیل متوقف کنید.',
+      );
+    }
     const now = nowIso(clock);
     db.prepare(`
       UPDATE projects
@@ -4414,6 +4459,53 @@ export function createPlatformStore(
     };
   }
 
+  function readinessMetrics(projectId) {
+    if (readinessStore) return readinessStore.projectSummary(projectId);
+    const run = db.prepare(`
+      SELECT * FROM project_readiness_runs WHERE project_id=?
+    `).get(projectId);
+    if (!run) {
+      return {
+        initialized: false,
+        status: 'not_started',
+        eligibleToOperate: false,
+        stepsPercent: 0,
+      };
+    }
+    const counts = db.prepare(`
+      SELECT
+        SUM(CASE WHEN required=1 THEN 1 ELSE 0 END) AS total_required,
+        SUM(CASE WHEN required=1 AND status IN ('completed','waived') THEN 1 ELSE 0 END)
+          AS completed_required
+      FROM project_readiness_steps WHERE run_id=?
+    `).get(run.id);
+    const participation = participationMetrics(projectId);
+    const totalRequired = Number(counts.total_required || 0);
+    const completedRequired = Number(counts.completed_required || 0);
+    const participationPassed = !run.participation_required || (
+      participation.totalNeeds > 0 &&
+      participation.totalNeeds === participation.committedNeeds
+    );
+    const eligibleToOperate = participationPassed &&
+      totalRequired > 0 && totalRequired === completedRequired;
+    const status = run.status === 'operating' && !eligibleToOperate
+      ? 'attention_required'
+      : run.status;
+    return {
+      initialized: true,
+      status,
+      templateName: run.template_name,
+      eligibleToOperate,
+      participationRequired: Boolean(run.participation_required),
+      participationPercent: participation.participationCompletionPercent,
+      totalRequiredSteps: totalRequired,
+      completedRequiredSteps: completedRequired,
+      stepsPercent: totalRequired ? (completedRequired / totalRequired) * 100 : 0,
+      operatingAt: run.operating_at,
+      updatedAt: run.updated_at,
+    };
+  }
+
   function dashboard(projectId) {
     const project = mapProject(requireProject(projectId, { includeArchived: true }));
     const capital = capTable(projectId);
@@ -4445,6 +4537,7 @@ export function createPlatformStore(
       overallProgressPercent,
       overallProgressSource,
       execution,
+      readiness: readinessMetrics(projectId),
       governance: governanceMetrics(projectId),
       stakeholderReturns: enterpriseReturns?.stakeholderReturns ||
         stakeholderReturns(projectId, financial.valuation),
@@ -4498,6 +4591,7 @@ export function createPlatformStore(
       overallProgressPercent: full.overallProgressPercent,
       overallProgressSource: full.overallProgressSource,
       execution: full.execution,
+      readiness: full.readiness,
       governance: {
         ...governanceMetrics(projectId, true),
         meetings: meetings(projectId, { publicOnly: true }).meetings,

@@ -1,6 +1,6 @@
 {
   "name": "hamsakht-platform",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "پلتفرم جامع و سبک مدیریت سبد پروژه‌ها، مشارکت، سرمایه، عملکرد مالی و حاکمیت",
   "private": true,
   "type": "module",

@@ -3,7 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { hashToken, randomToken } from './security.js';
 import { applyEnterpriseSchema, syncLegacyFinance } from './enterprise-schema.js';
 
-export const SCHEMA_VERSION = 18;
+export const SCHEMA_VERSION = 19;
 const MAX_PRACTICAL_WEIGHT = 1_000_000;
 
 function quotedIdentifier(identifier) {
@@ -1580,6 +1580,134 @@ function migration18(db) {
   `);
 }
 
+function migration19(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS readiness_templates (
+      id TEXT PRIMARY KEY,
+      organization_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      project_kind TEXT,
+      industry TEXT,
+      active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
+      version INTEGER NOT NULL DEFAULT 1 CHECK(version > 0),
+      created_by_user_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      archived_at TEXT,
+      FOREIGN KEY(organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+      FOREIGN KEY(created_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS readiness_template_steps (
+      id TEXT PRIMARY KEY,
+      template_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      position INTEGER NOT NULL DEFAULT 0 CHECK(position >= 0),
+      action_type TEXT NOT NULL DEFAULT 'form'
+        CHECK(action_type IN ('manual','form','document','task','resolution')),
+      required INTEGER NOT NULL DEFAULT 1 CHECK(required IN (0,1)),
+      approval_required INTEGER NOT NULL DEFAULT 0 CHECK(approval_required IN (0,1)),
+      form_schema_json TEXT NOT NULL DEFAULT '[]',
+      gate_rules_json TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(template_id) REFERENCES readiness_templates(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS project_readiness_runs (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL UNIQUE,
+      template_id TEXT,
+      template_version INTEGER NOT NULL CHECK(template_version > 0),
+      template_name TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'in_progress'
+        CHECK(status IN ('in_progress','ready','operating','attention_required','suspended')),
+      participation_required INTEGER NOT NULL DEFAULT 1
+        CHECK(participation_required IN (0,1)),
+      started_at TEXT NOT NULL,
+      ready_at TEXT,
+      operating_at TEXT,
+      suspended_at TEXT,
+      activated_by_user_id TEXT,
+      suspended_by_user_id TEXT,
+      suspension_note TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+      FOREIGN KEY(template_id) REFERENCES readiness_templates(id) ON DELETE SET NULL,
+      FOREIGN KEY(activated_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
+      FOREIGN KEY(suspended_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS project_readiness_steps (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL,
+      template_step_id TEXT,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      position INTEGER NOT NULL DEFAULT 0 CHECK(position >= 0),
+      action_type TEXT NOT NULL DEFAULT 'form'
+        CHECK(action_type IN ('manual','form','document','task','resolution')),
+      required INTEGER NOT NULL DEFAULT 1 CHECK(required IN (0,1)),
+      approval_required INTEGER NOT NULL DEFAULT 0 CHECK(approval_required IN (0,1)),
+      status TEXT NOT NULL DEFAULT 'pending'
+        CHECK(status IN ('pending','in_progress','submitted','completed','blocked','waived')),
+      form_schema_json TEXT NOT NULL DEFAULT '[]',
+      gate_rules_json TEXT NOT NULL DEFAULT '[]',
+      submission_json TEXT NOT NULL DEFAULT '{}',
+      evidence_document_id TEXT,
+      assigned_user_id TEXT,
+      submitted_by_user_id TEXT,
+      submitted_at TEXT,
+      completed_by_user_id TEXT,
+      completed_at TEXT,
+      approved_by_user_id TEXT,
+      approved_at TEXT,
+      note TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL,
+      UNIQUE(run_id, template_step_id),
+      FOREIGN KEY(run_id) REFERENCES project_readiness_runs(id) ON DELETE CASCADE,
+      FOREIGN KEY(template_step_id) REFERENCES readiness_template_steps(id) ON DELETE SET NULL,
+      FOREIGN KEY(evidence_document_id) REFERENCES documents(id) ON DELETE SET NULL,
+      FOREIGN KEY(assigned_user_id) REFERENCES users(id) ON DELETE SET NULL,
+      FOREIGN KEY(submitted_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
+      FOREIGN KEY(completed_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
+      FOREIGN KEY(approved_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS project_readiness_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id TEXT NOT NULL,
+      step_id TEXT,
+      event_type TEXT NOT NULL
+        CHECK(event_type IN (
+          'initialized','submitted','approved','completed','reopened',
+          'ready','activated','suspended','evaluation_failed'
+        )),
+      from_status TEXT,
+      to_status TEXT,
+      actor_user_id TEXT,
+      note TEXT NOT NULL DEFAULT '',
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(run_id) REFERENCES project_readiness_runs(id) ON DELETE CASCADE,
+      FOREIGN KEY(step_id) REFERENCES project_readiness_steps(id) ON DELETE SET NULL,
+      FOREIGN KEY(actor_user_id) REFERENCES users(id) ON DELETE SET NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS readiness_templates_match
+      ON readiness_templates(organization_id, active, project_kind, industry, archived_at);
+    CREATE INDEX IF NOT EXISTS readiness_template_steps_order
+      ON readiness_template_steps(template_id, position, id);
+    CREATE INDEX IF NOT EXISTS project_readiness_steps_order
+      ON project_readiness_steps(run_id, position, id);
+    CREATE INDEX IF NOT EXISTS project_readiness_events_history
+      ON project_readiness_events(run_id, created_at DESC, id DESC);
+  `);
+}
+
 const MIGRATIONS = [
   migration1,
   migration2,
@@ -1599,6 +1727,7 @@ const MIGRATIONS = [
   migration16,
   migration17,
   migration18,
+  migration19,
 ];
 
 function applyMigrations(db) {

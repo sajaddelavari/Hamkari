@@ -30,6 +30,8 @@ import {
 import { routePublicApi } from './public-routes.js';
 import { MemoryRateLimiter } from './rate-limit.js';
 import { createPlatformStore } from './platform-store.js';
+import { createReadinessStore } from './readiness-store.js';
+import { routeReadinessApi } from './readiness-routes.js';
 import {
   createPasswordHash,
   createSignedVisitorCookie,
@@ -127,11 +129,16 @@ export function createApplication(options) {
       paymentProviderMode: config.paymentProviderMode,
       distributionKycRequired: config.distributionKycRequired,
     });
+  const readinessStore = options.readinessStore || createReadinessStore(db, {
+    clock,
+    audit: appendEnterpriseAudit,
+  });
   const platformStore = options.platformStore || createPlatformStore(db, {
     clock,
     audit: appendEnterpriseAudit,
     operationsStore,
     financeStore: enterpriseFinanceStore,
+    readinessStore,
   });
   const documentStore = options.documentStore || createDocumentStore(db, {
     clock,
@@ -216,6 +223,7 @@ export function createApplication(options) {
         enterpriseFinanceStore,
         documentStore,
         decisionActionStore,
+        readinessStore,
         hubStore,
         auditService,
         notificationWorker,
@@ -296,6 +304,7 @@ export function createApplication(options) {
       if (url.pathname.startsWith('/api/v2/')) {
         if (await routeBootstrapApi(context)) return;
         if (await routeIdentityApi(context)) return;
+        if (await routeReadinessApi(context, authorizeWorkspace)) return;
         if (await routeOperationsApi(context, authorizeWorkspace)) return;
         if (await routeEnterpriseFinanceApi(context, authorizeWorkspace)) return;
         if (await routeDecisionActionApi(context, authorizeWorkspace)) return;
