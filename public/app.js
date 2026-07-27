@@ -959,7 +959,7 @@ function projectFooter(projectSlug) {
   }
   footerNavigation.append(
     appLink('/my-proposals', 'پیگیری‌های من'),
-    element('a', { text: 'ورود مدیر', attrs: { href: '/admin' } }),
+    element('a', { text: 'ورود به فضای کاری', attrs: { href: '/workspace' } }),
   );
   inner.append(
     element('div', { className: 'footer-brand' },
@@ -1819,7 +1819,7 @@ function renderPerformanceModule(data) {
     });
     trend.append(chart);
   } else if (goalSummary.count) {
-    goalsBlock.append(element('article', { className: 'goal-card goal-summary-card' },
+    trend.append(element('article', { className: 'goal-card goal-summary-card' },
       element('div', { className: 'goal-head' },
         element('div', {},
           element('span', { className: 'goal-status', text: 'خلاصهٔ عمومی' }),

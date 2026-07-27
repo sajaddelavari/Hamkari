@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, rmSync, statSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -11,6 +11,7 @@ import { loadConfig } from '../../src/config.js';
 import { openDatabase, SCHEMA_VERSION, withTransaction } from '../../src/database.js';
 import { createPasswordHash } from '../../src/security.js';
 import { createStore } from '../../src/store.js';
+import { restoreDatabase } from '../../scripts/restore.js';
 
 function legacyDatabase(path) {
   const db = new DatabaseSync(path);
@@ -116,6 +117,124 @@ test('legacy schema migrates without deleting source data and preserves one acce
   }
 });
 
+test('schema 17 preserves proposal history while enabling API-key attribution', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'hamkari-proposal-event-v18-'));
+  const path = join(directory, 'schema-17.db');
+  const config = loadConfig({
+    NODE_ENV: 'test',
+    DATABASE_PATH: path,
+    SESSION_SECRET: 'proposal-event-migration-secret-longer-than-thirty-two-characters',
+    ADMIN_DEV_PASSWORD: 'proposal-event-admin-password',
+  });
+  let db;
+  try {
+    db = openDatabase(config, { seed: true });
+    const needId = db.prepare(
+      'SELECT id FROM needs ORDER BY created_at,id LIMIT 1',
+    ).get().id;
+    db.prepare(`
+      INSERT INTO proposals(
+        id,need_id,visitor_id,applicant_name,mobile,email,contribution,
+        availability,notes,consent,status,tracking_token_hash,created_at,updated_at
+      ) VALUES(?,?,?,?,?,NULL,?,NULL,NULL,1,'new',?,?,?)
+    `).run(
+      'proposal-event-v18-test',
+      needId,
+      'proposal-event-v18-visitor',
+      'Migration applicant',
+      '09123456789',
+      'Migration contribution',
+      'proposal-event-v18-tracking-hash',
+      '2026-07-24T10:00:00.000Z',
+      '2026-07-24T10:00:00.000Z',
+    );
+    db.prepare(`
+      INSERT INTO proposal_events(
+        proposal_id,actor_type,actor_id,event_type,from_status,to_status,
+        message,visibility,created_at
+      ) VALUES(?,'admin','legacy-admin','created',NULL,'new',NULL,'admin',?)
+    `).run('proposal-event-v18-test', '2026-07-24T10:00:00.000Z');
+    const before = db.prepare(
+      'SELECT COUNT(*) AS count FROM proposal_events',
+    ).get().count;
+    assert.ok(before > 0);
+    db.close();
+    db = null;
+
+    const schema17 = new DatabaseSync(path);
+    schema17.exec(`
+      PRAGMA foreign_keys=OFF;
+      DROP INDEX IF EXISTS proposal_events_proposal_created;
+      ALTER TABLE proposal_events RENAME TO proposal_events_v18_source;
+      CREATE TABLE proposal_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        proposal_id TEXT NOT NULL,
+        actor_type TEXT NOT NULL
+          CHECK(actor_type IN ('applicant','admin','system')),
+        actor_id TEXT,
+        event_type TEXT NOT NULL
+          CHECK(event_type IN (
+            'created','status_changed','internal_note','decision_message','migrated'
+          )),
+        from_status TEXT,
+        to_status TEXT,
+        message TEXT,
+        visibility TEXT NOT NULL DEFAULT 'applicant'
+          CHECK(visibility IN ('applicant','admin')),
+        created_at TEXT NOT NULL,
+        FOREIGN KEY(proposal_id) REFERENCES proposals(id) ON DELETE CASCADE
+      );
+      INSERT INTO proposal_events(
+        id,proposal_id,actor_type,actor_id,event_type,from_status,to_status,
+        message,visibility,created_at
+      )
+      SELECT
+        id,proposal_id,actor_type,actor_id,event_type,from_status,to_status,
+        message,visibility,created_at
+      FROM proposal_events_v18_source;
+      DROP TABLE proposal_events_v18_source;
+      CREATE INDEX proposal_events_proposal_created
+        ON proposal_events(proposal_id, created_at, id);
+      PRAGMA user_version=17;
+    `);
+    schema17.close();
+
+    db = openDatabase(config, { seed: false, bootstrap: false });
+    assert.equal(
+      db.prepare('PRAGMA user_version').get().user_version,
+      SCHEMA_VERSION,
+    );
+    assert.equal(
+      db.prepare('SELECT COUNT(*) AS count FROM proposal_events').get().count,
+      before,
+    );
+    const proposalId = db.prepare(
+      'SELECT id FROM proposals ORDER BY created_at,id LIMIT 1',
+    ).get().id;
+    assert.doesNotThrow(() => db.prepare(`
+      INSERT INTO proposal_events(
+        proposal_id,actor_type,actor_id,event_type,from_status,to_status,
+        message,visibility,created_at
+      ) VALUES(?,'api_key',?,'internal_note',NULL,NULL,?,'admin',?)
+    `).run(
+      proposalId,
+      'api-key-migration-test',
+      'API-key attribution preserved',
+      '2026-07-24T12:00:00.000Z',
+    ));
+    const stored = db.prepare(`
+      SELECT actor_type,actor_id
+      FROM proposal_events
+      WHERE actor_id='api-key-migration-test'
+    `).get();
+    assert.equal(stored.actor_type, 'api_key');
+    assert.equal(stored.actor_id, 'api-key-migration-test');
+  } finally {
+    db?.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('transaction helper rolls back all writes when a step fails', () => {
   const config = loadConfig({
     NODE_ENV: 'test',
@@ -151,6 +270,8 @@ test('production bootstraps a private blank project instead of publishing demo d
     DATABASE_PATH: path,
     PUBLIC_ORIGIN: 'https://example.test',
     SESSION_SECRET: 'production-session-secret-longer-than-thirty-two-characters',
+    AUTH_ENCRYPTION_KEY: 'production-encryption-key-longer-than-thirty-two-characters',
+    AUDIT_HMAC_KEY: 'production-audit-hmac-key-longer-than-thirty-two-characters',
     ADMIN_PASSWORD_HASH: createPasswordHash('production-admin-password'),
   });
   const db = openDatabase(config);
@@ -268,6 +389,15 @@ test('backup script creates a consistent non-overwriting SQLite snapshot', () =>
       },
     );
     assert.equal(result.status, 0, result.stderr);
+    const created = JSON.parse(result.stdout.trim());
+    assert.equal(created.sizeBytes, statSync(destination).size);
+    assert.match(created.sha256, /^[a-f0-9]{64}$/);
+    assert.equal(
+      created.sha256,
+      createHash('sha256')
+        .update(readFileSync(destination))
+        .digest('hex'),
+    );
     const backup = new DatabaseSync(destination, { readOnly: true });
     try {
       assert.equal(backup.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
@@ -330,6 +460,158 @@ test('backup script creates a consistent non-overwriting SQLite snapshot', () =>
     assert.equal(dataDirectoryResult.status, 0, dataDirectoryResult.stderr);
     const dataDirectoryOutput = JSON.parse(dataDirectoryResult.stdout.trim());
     assert.equal(dataDirectoryOutput.source, join(dataDirectory, 'hamkari.db'));
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('restore script requires explicit confirmation and preserves a rollback database', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'hamkari-restore-'));
+  const source = join(directory, 'verified-backup.db');
+  const target = join(directory, 'live.db');
+  const environment = {
+    NODE_ENV: 'test',
+    SESSION_SECRET: 'test-session-secret-that-is-longer-than-thirty-two-characters',
+    ADMIN_DEV_PASSWORD: 'test-admin-password',
+  };
+  const sourceDb = openDatabase(loadConfig({
+    ...environment,
+    DATABASE_PATH: source,
+  }));
+  const sourceMarker = sourceDb.prepare('UPDATE projects SET title=? WHERE id=?')
+    .run('restored-marker', 'greenhouse-20ha');
+  assert.equal(sourceMarker.changes, 1, 'backup sentinel project must exist');
+  sourceDb.close();
+  const targetDb = openDatabase(loadConfig({
+    ...environment,
+    DATABASE_PATH: target,
+  }));
+  const targetMarker = targetDb.prepare('UPDATE projects SET title=? WHERE id=?')
+    .run('rollback-marker', 'greenhouse-20ha');
+  assert.equal(targetMarker.changes, 1, 'live sentinel project must exist');
+  targetDb.close();
+
+  const root = fileURLToPath(new URL('../..', import.meta.url));
+  try {
+    const refused = spawnSync(
+      process.execPath,
+      ['scripts/restore.js', source],
+      {
+        cwd: root,
+        env: { ...process.env, DATABASE_PATH: target },
+        encoding: 'utf8',
+      },
+    );
+    assert.notEqual(refused.status, 0);
+    assert.match(refused.stderr, /Restore refused/);
+
+    const restored = spawnSync(
+      process.execPath,
+      ['scripts/restore.js', source],
+      {
+        cwd: root,
+        env: {
+          ...process.env,
+          DATABASE_PATH: target,
+          RESTORE_CONFIRM: 'I_UNDERSTAND_REPLACE_DATABASE',
+        },
+        encoding: 'utf8',
+      },
+    );
+    assert.equal(restored.status, 0, restored.stderr);
+    const output = JSON.parse(restored.stdout.trim());
+    assert.equal(output.database, target);
+    assert.ok(output.rollback);
+    assert.equal(output.sourceSchemaVersion, SCHEMA_VERSION);
+    assert.equal(output.restoredSchemaVersion, SCHEMA_VERSION);
+
+    const current = new DatabaseSync(target, { readOnly: true });
+    const rollback = new DatabaseSync(output.rollback, { readOnly: true });
+    try {
+      assert.equal(
+        current.prepare('SELECT title FROM projects WHERE id=?')
+          .get('greenhouse-20ha').title,
+        'restored-marker',
+      );
+      assert.equal(
+        rollback.prepare('SELECT title FROM projects WHERE id=?')
+          .get('greenhouse-20ha').title,
+        'rollback-marker',
+      );
+      assert.equal(current.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
+      assert.equal(rollback.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
+    } finally {
+      current.close();
+      rollback.close();
+    }
+
+    const unrelated = join(directory, 'unrelated-current-version.db');
+    const unrelatedDb = new DatabaseSync(unrelated);
+    unrelatedDb.exec(`PRAGMA user_version=${SCHEMA_VERSION}`);
+    unrelatedDb.close();
+    const unrelatedResult = spawnSync(
+      process.execPath,
+      ['scripts/restore.js', unrelated],
+      {
+        cwd: root,
+        env: {
+          ...process.env,
+          DATABASE_PATH: target,
+          RESTORE_CONFIRM: 'I_UNDERSTAND_REPLACE_DATABASE',
+        },
+        encoding: 'utf8',
+      },
+    );
+    assert.notEqual(unrelatedResult.status, 0);
+    assert.match(unrelatedResult.stderr, /not a recognizable Hamkari database/);
+
+    const future = join(directory, 'future-version.db');
+    const futureDb = new DatabaseSync(future);
+    futureDb.exec(`PRAGMA user_version=${SCHEMA_VERSION + 1}`);
+    futureDb.close();
+    const futureResult = spawnSync(
+      process.execPath,
+      ['scripts/restore.js', future],
+      {
+        cwd: root,
+        env: {
+          ...process.env,
+          DATABASE_PATH: target,
+          RESTORE_CONFIRM: 'I_UNDERSTAND_REPLACE_DATABASE',
+        },
+        encoding: 'utf8',
+      },
+    );
+    assert.notEqual(futureResult.status, 0);
+    assert.match(futureResult.stderr, /does not match required version/);
+
+    const beforeFailedSwap = new DatabaseSync(target);
+    const failedSwapMarker = beforeFailedSwap
+      .prepare('UPDATE projects SET title=? WHERE id=?')
+      .run('pre-failed-swap-marker', 'greenhouse-20ha');
+    assert.equal(failedSwapMarker.changes, 1);
+    beforeFailedSwap.close();
+    assert.throws(
+      () => restoreDatabase({
+        sourcePath: source,
+        targetPath: target,
+        afterSwap: ({ targetPath }) => rmSync(targetPath, { force: true }),
+      }),
+    );
+    const automaticallyRolledBack = new DatabaseSync(target, { readOnly: true });
+    try {
+      assert.equal(
+        automaticallyRolledBack.prepare('SELECT title FROM projects WHERE id=?')
+          .get('greenhouse-20ha').title,
+        'pre-failed-swap-marker',
+      );
+      assert.equal(
+        automaticallyRolledBack.prepare('PRAGMA user_version').get().user_version,
+        SCHEMA_VERSION,
+      );
+    } finally {
+      automaticallyRolledBack.close();
+    }
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

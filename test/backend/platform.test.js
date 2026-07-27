@@ -21,6 +21,38 @@ async function login(client) {
   return { 'X-CSRF-Token': result.data.csrfToken };
 }
 
+async function bootstrapEnterpriseOwner(client) {
+  const legacy = await client.request('/api/v1/admin/session', {
+    method: 'POST',
+    body: { password: TEST_PASSWORD },
+  });
+  assert.equal(legacy.response.status, 200);
+  const bootstrap = await client.request('/api/v2/auth/bootstrap', {
+    method: 'POST',
+    headers: { 'X-CSRF-Token': legacy.data.csrfToken },
+    body: {
+      email: 'platform-owner@example.test',
+      fullName: 'Platform Owner',
+      organizationName: 'Platform Test Organization',
+      password: 'platform-owner-password',
+    },
+  });
+  assert.equal(bootstrap.response.status, 201);
+  const session = await client.request('/api/v2/auth/session', {
+    method: 'POST',
+    body: {
+      email: 'platform-owner@example.test',
+      password: 'platform-owner-password',
+    },
+  });
+  assert.equal(session.response.status, 200);
+  return {
+    user: bootstrap.data.user,
+    organization: bootstrap.data.organization,
+    csrf: session.data.csrfToken,
+  };
+}
+
 test('public portfolio exposes three safe project summaries and rich public detail', async (t) => {
   const fixture = await startTestApplication();
   t.after(fixture.close);
@@ -748,6 +780,96 @@ test('admin portfolio APIs keep projects scoped and expose dashboard modules', a
     (await fixture.client().request('/api/v1/projects/factory-alpha')).response.status,
     404,
   );
+});
+
+test('v2 compatibility keeps API-key identity and rejects transfer maker or checker use', async (t) => {
+  const fixture = await startTestApplication();
+  t.after(fixture.close);
+  const ownerClient = fixture.client();
+  const owner = await bootstrapEnterpriseOwner(ownerClient);
+  const project = fixture.application.db.prepare(`
+    SELECT project.id
+    FROM projects project
+    WHERE project.organization_id=?
+      AND EXISTS(
+        SELECT 1 FROM share_classes share_class
+        WHERE share_class.project_id=project.id
+      )
+      AND (
+        SELECT COUNT(*) FROM project_stakeholders stakeholder
+        WHERE stakeholder.project_id=project.id AND stakeholder.archived_at IS NULL
+      )>=2
+    ORDER BY project.id
+    LIMIT 1
+  `).get(owner.organization.id);
+  const shareClass = fixture.application.db.prepare(`
+    SELECT id FROM share_classes WHERE project_id=? ORDER BY id LIMIT 1
+  `).get(project.id);
+  const stakeholders = fixture.application.db.prepare(`
+    SELECT id FROM project_stakeholders
+    WHERE project_id=? AND archived_at IS NULL
+    ORDER BY id LIMIT 2
+  `).all(project.id);
+  const apiKey = await ownerClient.request(
+    `/api/v2/admin/organizations/${owner.organization.id}/api-keys`,
+    {
+      method: 'POST',
+      headers: { 'X-CSRF-Token': owner.csrf },
+      body: {
+        name: 'Capital automation must stay non-interactive',
+        permissions: ['capital.manage'],
+      },
+    },
+  );
+  assert.equal(apiKey.response.status, 201);
+  const bearerHeaders = {
+    Authorization: `Bearer ${apiKey.data.token}`,
+    'Idempotency-Key': 'api-key-transfer-create-0000000000',
+  };
+  let result = await fixture.client().request(
+    `/api/v2/admin/projects/${project.id}/share-transfers`,
+    {
+      method: 'POST',
+      headers: bearerHeaders,
+      body: {
+        shareClassId: shareClass.id,
+        fromStakeholderId: stakeholders[0].id,
+        toStakeholderId: stakeholders[1].id,
+        units: 1,
+        priceAmount: 0,
+        status: 'draft',
+      },
+    },
+  );
+  assert.equal(result.response.status, 403);
+  assert.equal(result.data.error.code, 'CAPITAL_INTERACTIVE_USER_REQUIRED');
+
+  fixture.application.db.prepare(`
+    INSERT INTO share_transfers(
+      id,project_id,share_class_id,from_stakeholder_id,to_stakeholder_id,
+      units,status,created_by_user_id,created_at,updated_at
+    ) VALUES(
+      'api-key-pending-transfer',?,?,?,?,1,'pending',?,?,?
+    )
+  `).run(
+    project.id,
+    shareClass.id,
+    stakeholders[0].id,
+    stakeholders[1].id,
+    owner.user.id,
+    '2026-07-24T10:00:00.000Z',
+    '2026-07-24T10:00:00.000Z',
+  );
+  result = await fixture.client().request(
+    `/api/v2/admin/projects/${project.id}/share-transfers/api-key-pending-transfer`,
+    {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${apiKey.data.token}` },
+      body: { status: 'approved' },
+    },
+  );
+  assert.equal(result.response.status, 403);
+  assert.equal(result.data.error.code, 'CAPITAL_INTERACTIVE_USER_REQUIRED');
 });
 
 test('cross-project capital references are rejected before SQLite and amounts are safe integers', async (t) => {
@@ -2184,10 +2306,190 @@ test('schema 7 databases upgrade incrementally to the latest schema without losi
     );
     assert.ok(
       upgraded.prepare(`
+        SELECT 1 FROM pragma_table_info('project_stakeholders')
+        WHERE name='user_id'
+      `).get(),
+    );
+    assert.ok(
+      upgraded.prepare(`
+        SELECT 1 FROM pragma_table_info('meeting_resolutions')
+        WHERE name='operation_request_hash'
+      `).get(),
+    );
+    assert.ok(
+      upgraded.prepare(`
+        SELECT 1 FROM sqlite_master
+        WHERE type='table' AND name='resolution_operation_bindings'
+      `).get(),
+    );
+    assert.ok(
+      upgraded.prepare(`
         SELECT 1 FROM sqlite_master
         WHERE type='table' AND name='operation_receipts'
       `).get(),
     );
+  } finally {
+    upgraded.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('schema 17 repairs legacy decision state and safely reopens unverified approvals', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'hamkari-v17-corrective-'));
+  const databasePath = join(directory, 'v17.db');
+  const config = loadConfig({
+    NODE_ENV: 'test',
+    DATABASE_PATH: databasePath,
+    SESSION_SECRET: 'schema-seventeen-test-secret-longer-than-thirty-two-characters',
+    ADMIN_DEV_PASSWORD: 'schema-seventeen-admin-password',
+  });
+  const initialized = openDatabase(config, { seed: true });
+  const now = '2026-07-24T10:00:00.000Z';
+  try {
+    const project = initialized.prepare(`
+      SELECT project.id,project.organization_id
+      FROM projects project
+      WHERE EXISTS(
+        SELECT 1 FROM share_classes share_class
+        WHERE share_class.project_id=project.id
+      )
+      AND (
+        SELECT COUNT(*) FROM project_stakeholders stakeholder
+        WHERE stakeholder.project_id=project.id
+      )>=2
+      ORDER BY project.id
+      LIMIT 1
+    `).get();
+    const shareClass = initialized.prepare(`
+      SELECT id FROM share_classes WHERE project_id=? ORDER BY id LIMIT 1
+    `).get(project.id);
+    const stakeholders = initialized.prepare(`
+      SELECT id FROM project_stakeholders
+      WHERE project_id=? ORDER BY id LIMIT 2
+    `).all(project.id);
+    initialized.prepare(`
+      INSERT INTO users(
+        id,email,password_hash,full_name,status,password_changed_at,
+        created_at,updated_at
+      ) VALUES(
+        'migration-owner','migration-owner@example.test','unused',
+        'Migration Owner','active',?,?,?
+      )
+    `).run(now, now, now);
+    initialized.prepare(`
+      INSERT INTO organization_memberships(
+        id,organization_id,user_id,role_key,status,joined_at,created_at,updated_at
+      ) VALUES(
+        'migration-owner-membership',?,'migration-owner','owner','active',?,?,?
+      )
+    `).run(project.organization_id, now, now, now);
+    const insertAction = initialized.prepare(`
+      INSERT INTO decision_actions(
+        id,project_id,title,status,workflow_status,created_at,updated_at
+      ) VALUES(?,?,?,'done','open',?,?)
+    `);
+    insertAction.run(
+      'legacy-decision-repair',
+      project.id,
+      'Repair legacy completed state',
+      now,
+      now,
+    );
+    insertAction.run(
+      'decision-with-history',
+      project.id,
+      'Preserve explicit workflow history',
+      now,
+      now,
+    );
+    initialized.prepare(`
+      INSERT INTO decision_action_history(
+        id,decision_action_id,event_type,from_status,to_status,
+        actor_type,metadata_json,created_at
+      ) VALUES(
+        'decision-history','decision-with-history','transition',
+        'completed','open','user','{}',?
+      )
+    `).run(now);
+    initialized.prepare(`
+      INSERT INTO corporate_actions(
+        id,project_id,action_type,title,status,approved_by_user_id,
+        approved_at,approved_preview_hash,created_at,updated_at
+      ) VALUES(
+        'legacy-approved-without-preview',?,'capital_increase',
+        'Unsafe legacy approval','approved','migration-owner',?,NULL,?,?
+      )
+    `).run(project.id, now, now, now);
+    initialized.prepare(`
+      INSERT INTO share_transfers(
+        id,project_id,share_class_id,from_stakeholder_id,to_stakeholder_id,
+        units,status,created_at,updated_at,created_by_user_id
+      ) VALUES(
+        'legacy-pending-needs-review',?,?,?,?,1,'pending',?,?,NULL
+      )
+    `).run(
+      project.id,
+      shareClass.id,
+      stakeholders[0].id,
+      stakeholders[1].id,
+      now,
+      now,
+    );
+    initialized.exec('PRAGMA user_version=16');
+  } finally {
+    initialized.close();
+  }
+
+  const upgraded = openDatabase(config, { seed: false, bootstrap: false });
+  try {
+    assert.equal(
+      upgraded.prepare('PRAGMA user_version').get().user_version,
+      SCHEMA_VERSION,
+    );
+    assert.equal(
+      upgraded.prepare(`
+        SELECT workflow_status FROM decision_actions
+        WHERE id='legacy-decision-repair'
+      `).get().workflow_status,
+      'completed',
+    );
+    assert.equal(
+      upgraded.prepare(`
+        SELECT workflow_status FROM decision_actions
+        WHERE id='decision-with-history'
+      `).get().workflow_status,
+      'open',
+    );
+    const corporateAction = upgraded.prepare(`
+      SELECT status,approved_by_user_id,approved_at,approved_preview_hash
+      FROM corporate_actions
+      WHERE id='legacy-approved-without-preview'
+    `).get();
+    assert.equal(corporateAction.status, 'draft');
+    assert.equal(corporateAction.approved_by_user_id, null);
+    assert.equal(corporateAction.approved_at, null);
+    assert.equal(corporateAction.approved_preview_hash, null);
+    const transfer = upgraded.prepare(`
+      SELECT status,created_by_user_id,decision_note
+      FROM share_transfers
+      WHERE id='legacy-pending-needs-review'
+    `).get();
+    assert.equal(transfer.status, 'draft');
+    assert.equal(transfer.created_by_user_id, null);
+    assert.match(transfer.decision_note, /Compliance evidence/);
+    assert.ok(
+      upgraded.prepare(`
+        SELECT 1 FROM sqlite_master
+        WHERE type='table' AND name='resolution_operation_bindings'
+      `).get(),
+    );
+    assert.ok(
+      upgraded.prepare(`
+        SELECT 1 FROM pragma_table_info('project_stakeholders')
+        WHERE name='user_id'
+      `).get(),
+    );
+    assert.deepEqual(upgraded.prepare('PRAGMA foreign_key_check').all(), []);
   } finally {
     upgraded.close();
     rmSync(directory, { recursive: true, force: true });

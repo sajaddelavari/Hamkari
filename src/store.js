@@ -18,6 +18,30 @@ function nullable(value) {
   return value === undefined || value === '' ? null : value;
 }
 
+function proposalMutationActor(value) {
+  if (
+    value &&
+    typeof value === 'object' &&
+    value.actorType === 'api_key' &&
+    typeof value.actorId === 'string' &&
+    value.actorId
+  ) {
+    return {
+      eventActorType: 'api_key',
+      auditActorType: 'api_key',
+      actorId: value.actorId,
+      actorUserId:
+        typeof value.actorUserId === 'string' ? value.actorUserId : null,
+    };
+  }
+  return {
+    eventActorType: 'admin',
+    auditActorType: 'legacy_admin',
+    actorId: String(value || ''),
+    actorUserId: null,
+  };
+}
+
 function publicProjectRow(row) {
   return {
     id: row.id,
@@ -229,17 +253,19 @@ function proposalTrackingToken(proposalId, needId, idempotencyKey) {
 export function createStore(db, options) {
   const clock = options.clock || (() => new Date());
   const publicOrigin = options.publicOrigin;
+  const audit = options.audit || (() => {});
 
   const getProject = db.prepare(`
-    SELECT id, slug, title, subtitle, summary, leader_name, leader_description,
+    SELECT id, organization_id, slug, title, subtitle, summary, leader_name, leader_description,
            location, timeline, target_date, process_description, status,
            active, industry, sector, kind, stage, currency, budget_amount,
            valuation_amount, start_date, created_at, updated_at
     FROM projects
-    WHERE slug = ? AND status='published' AND archived_at IS NULL
+    WHERE slug = ? AND status='published' AND visibility<>'private'
+      AND archived_at IS NULL
   `);
   const getManagedProject = db.prepare(`
-    SELECT id, slug, title, subtitle, summary, leader_name, leader_description,
+    SELECT id, organization_id, slug, title, subtitle, summary, leader_name, leader_description,
            location, timeline, target_date, process_description, status,
            active, industry, sector, kind, stage, currency, budget_amount,
            valuation_amount, start_date, created_at, updated_at
@@ -249,7 +275,7 @@ export function createStore(db, options) {
     LIMIT 1
   `);
   const getManagedProjectById = db.prepare(`
-    SELECT id, slug, title, subtitle, summary, leader_name, leader_description,
+    SELECT id, organization_id, slug, title, subtitle, summary, leader_name, leader_description,
            location, timeline, target_date, process_description, status,
            active, industry, sector, kind, stage, currency, budget_amount,
            valuation_amount, start_date, created_at, updated_at
@@ -259,7 +285,7 @@ export function createStore(db, options) {
   const getCurrentPublicProject = db.prepare(`
     SELECT slug
     FROM projects
-    WHERE status='published' AND archived_at IS NULL
+    WHERE status='published' AND visibility='public' AND archived_at IS NULL
     ORDER BY active DESC, created_at, id
     LIMIT 1
   `);
@@ -307,7 +333,8 @@ export function createStore(db, options) {
         SELECT n.id, n.project_id FROM needs n
         JOIN projects p ON p.id=n.project_id
         WHERE n.id=? AND n.archived_at IS NULL
-          AND p.status='published' AND p.archived_at IS NULL
+          AND p.status='published' AND p.visibility<>'private'
+          AND p.archived_at IS NULL
       `).get(needId);
       if (!need) throw notFound('NEED_NOT_FOUND', 'نیاز همکاری موردنظر پیدا نشد.');
       if (!state.following && !state.interested) {
@@ -376,10 +403,11 @@ export function createStore(db, options) {
       }
 
       const need = db.prepare(`
-        SELECT n.id FROM needs n
+        SELECT n.id,n.project_id,p.organization_id FROM needs n
         JOIN projects p ON p.id=n.project_id
         WHERE n.id=? AND n.archived_at IS NULL
-          AND p.status='published' AND p.archived_at IS NULL
+          AND p.status='published' AND p.visibility<>'private'
+          AND p.archived_at IS NULL
       `).get(needId);
       if (!need) throw notFound('NEED_NOT_FOUND', 'نیاز همکاری موردنظر پیدا نشد.');
 
@@ -420,6 +448,23 @@ export function createStore(db, options) {
         UPDATE projects SET updated_at=?
         WHERE id=(SELECT project_id FROM needs WHERE id=?)
       `).run(now, needId);
+      audit({
+        organizationId: need.organization_id,
+        projectId: need.project_id,
+        actorType: 'system',
+        actorId: visitorId,
+        action: 'proposal.created',
+        resourceType: 'proposal',
+        resourceId: proposalId,
+        after: {
+          needId,
+          status: 'new',
+          consent: true,
+        },
+        metadata: {
+          actorKind: 'applicant',
+        },
+      });
     });
 
     const proposal = db.prepare(`
@@ -548,6 +593,15 @@ export function createStore(db, options) {
         now,
         current.id,
       );
+      audit({
+        organizationId: current.organization_id,
+        projectId: current.id,
+        action: 'legacy.project.updated',
+        resourceType: 'project',
+        resourceId: current.id,
+        before: { slug: current.slug, title: current.title, status: current.status },
+        after: { slug: next.slug, title: next.title, status: next.status },
+      });
     });
     return adminProject();
   }
@@ -596,6 +650,14 @@ export function createStore(db, options) {
         now,
       );
       db.prepare('UPDATE projects SET updated_at=? WHERE id=?').run(now, project.id);
+      audit({
+        organizationId: project.organization_id,
+        projectId: project.id,
+        action: 'legacy.need.created',
+        resourceType: 'need',
+        resourceId: id,
+        after: { title: input.title, category: input.category },
+      });
     });
     return {
       need: adminProject(project.id).needs.find((need) => need.id === id),
@@ -649,6 +711,23 @@ export function createStore(db, options) {
         id,
       );
       db.prepare('UPDATE projects SET updated_at=? WHERE id=?').run(now, current.project_id);
+      audit({
+        organizationId: project.organization_id,
+        projectId: project.id,
+        action: 'legacy.need.updated',
+        resourceType: 'need',
+        resourceId: id,
+        before: {
+          title: current.title,
+          category: current.category,
+          orderNo: Number(current.order_no),
+        },
+        after: {
+          title: input.title ?? current.title,
+          category: input.category ?? current.category,
+          orderNo: Number(current.order_no),
+        },
+      });
     });
     return {
       need: adminProject(project.id).needs.find((need) => need.id === id),
@@ -673,6 +752,13 @@ export function createStore(db, options) {
         `).run(now, current.project_id, current.order_no);
         db.prepare('UPDATE projects SET updated_at=? WHERE id=?')
           .run(now, current.project_id);
+        audit({
+          organizationId: project.organization_id,
+          projectId: project.id,
+          action: 'legacy.need.archived',
+          resourceType: 'need',
+          resourceId: id,
+        });
       });
     }
     return { archived: true, id };
@@ -701,6 +787,14 @@ export function createStore(db, options) {
       `);
       ids.forEach((id, index) => update.run(index + 1, now, id, project.id));
       db.prepare('UPDATE projects SET updated_at=? WHERE id=?').run(now, project.id);
+      audit({
+        organizationId: project.organization_id,
+        projectId: project.id,
+        action: 'legacy.needs.reordered',
+        resourceType: 'need_order',
+        resourceId: project.id,
+        metadata: { ids },
+      });
     });
     return {
       needs: adminProject(project.id).needs.filter((need) => !need.archivedAt),
@@ -802,6 +896,7 @@ export function createStore(db, options) {
 
   function updateProposal(id, patch, adminSessionId, projectId = null) {
     const managedProject = requireManagedProject(projectId);
+    const mutationActor = proposalMutationActor(adminSessionId);
     withTransaction(db, () => {
       const current = db.prepare(`
         SELECT p.* FROM proposals p
@@ -883,12 +978,13 @@ export function createStore(db, options) {
         INSERT INTO proposal_events(
           proposal_id, actor_type, actor_id, event_type,
           from_status, to_status, message, visibility, created_at
-        ) VALUES(?, 'admin', ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       if (statusChanged) {
         insertEvent.run(
           id,
-          adminSessionId,
+          mutationActor.eventActorType,
+          mutationActor.actorId,
           'status_changed',
           current.status,
           nextStatus,
@@ -902,7 +998,8 @@ export function createStore(db, options) {
       ) {
         insertEvent.run(
           id,
-          adminSessionId,
+          mutationActor.eventActorType,
+          mutationActor.actorId,
           'decision_message',
           current.status,
           current.status,
@@ -917,7 +1014,8 @@ export function createStore(db, options) {
       ) {
         insertEvent.run(
           id,
-          adminSessionId,
+          mutationActor.eventActorType,
+          mutationActor.actorId,
           'internal_note',
           current.status,
           nextStatus,
@@ -928,6 +1026,28 @@ export function createStore(db, options) {
       }
       db.prepare('UPDATE projects SET updated_at=? WHERE id=?')
         .run(now, managedProject.id);
+      audit({
+        organizationId: managedProject.organization_id,
+        projectId: managedProject.id,
+        actorType: mutationActor.auditActorType,
+        actorId: mutationActor.actorId,
+        actorUserId: mutationActor.actorUserId,
+        action: 'proposal.updated',
+        resourceType: 'proposal',
+        resourceId: id,
+        before: {
+          status: current.status,
+          decisionMessage: current.decision_message,
+        },
+        after: {
+          status: nextStatus,
+          decisionMessage: nextDecision,
+        },
+        metadata: {
+          statusChanged,
+          internalNoteChanged: internalChanged,
+        },
+      });
     });
     return proposalDetail(id, managedProject.id);
   }

@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0F5C47">
+  <meta name="color-scheme" content="light">
+  <meta name="robots" content="noindex,nofollow">
+  <title>فضای کاری سازمانی | هم‌ساخت</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/workspace.css">
+</head>
+<body>
+  <a class="ws-skip" href="#workspaceContent">رفتن به محتوای اصلی</a>
+  <div id="toastRegion" class="ws-toast-region" aria-live="polite" aria-atomic="true"></div>
+
+  <main id="authView" class="ws-auth">
+    <section class="ws-auth__story" aria-labelledby="authStoryTitle">
+      <a class="ws-brand ws-brand--light" href="/" aria-label="هم‌ساخت، صفحهٔ عمومی">
+        <svg viewBox="0 0 40 40" aria-hidden="true">
+          <rect x="4" y="4" width="14" height="14" rx="4"></rect>
+          <rect x="22" y="4" width="14" height="14" rx="4"></rect>
+          <rect x="4" y="22" width="14" height="14" rx="4"></rect>
+          <path d="M22 22h5a4 4 0 0 0 4-4v-1h1a4 4 0 0 1 4 4v11a4 4 0 0 1-4 4H22V22Z"></path>
+        </svg>
+        <span><strong>هم‌ساخت</strong><small>فضای کاری سازمانی</small></span>
+      </a>
+      <div class="ws-auth__copy">
+        <span class="ws-kicker">از ایده تا نتیجه، در یک سامانه</span>
+        <h1 id="authStoryTitle">پروژه، سرمایه و تصمیم‌های شما در یک تصویر روشن</h1>
+        <p>اجرای پروژه، کنترل مالی، سهام، حاکمیت، قرارداد و مشارکت را بدون پراکندگی مدیریت کنید.</p>
+        <ul>
+          <li><span>۱</span>پیشرفت و ریسک قابل اندازه‌گیری</li>
+          <li><span>۲</span>دفتر مالی و مالکیت قابل حسابرسی</li>
+          <li><span>۳</span>دسترسی سازمانی و تصمیم‌های مستند</li>
+        </ul>
+      </div>
+      <p class="ws-auth__foot">داده‌های مدیریتی در صفحهٔ عمومی نمایش داده نمی‌شوند.</p>
+    </section>
+
+    <section class="ws-auth__panel">
+      <div class="ws-auth__card">
+        <div class="ws-auth__mobile-brand">
+          <img src="/favicon.svg" alt="" width="42" height="42">
+          <strong>هم‌ساخت</strong>
+        </div>
+        <div id="accountLoginStep">
+          <span class="ws-kicker">ورود اعضای سازمان</span>
+          <h2>خوش آمدید</h2>
+          <p>با ایمیل و رمز شخصی خود وارد فضای کاری شوید.</p>
+          <form id="accountLoginForm" class="ws-form" novalidate>
+            <label>
+              <span>ایمیل کاری</span>
+              <input id="loginEmail" name="email" type="email" autocomplete="username" dir="ltr" required>
+              <small data-error-for="email"></small>
+            </label>
+            <label>
+              <span>رمز عبور</span>
+              <div class="ws-password">
+                <input id="loginPassword" name="password" type="password" autocomplete="current-password" required minlength="12">
+                <button type="button" data-toggle-password="loginPassword" aria-label="نمایش رمز">نمایش</button>
+              </div>
+              <small data-error-for="password"></small>
+            </label>
+            <div id="accountLoginError" class="ws-alert ws-alert--error" role="alert" hidden></div>
+            <button class="ws-button ws-button--primary ws-button--block" type="submit">
+              ورود به فضای کاری
+            </button>
+          </form>
+          <button id="forgotPasswordButton" class="ws-link-button" type="button">رمز را فراموش کرده‌ام</button>
+        </div>
+
+        <div id="mfaStep" hidden>
+          <button class="ws-back-button" type="button" data-auth-back>بازگشت</button>
+          <span class="ws-kicker">تأیید دومرحله‌ای</span>
+          <h2>کد امنیتی را وارد کنید</h2>
+          <p>کد شش‌رقمی برنامهٔ احراز هویت یا یکی از کدهای بازیابی را بنویسید.</p>
+          <form id="mfaForm" class="ws-form" novalidate>
+            <label>
+              <span>کد امنیتی</span>
+              <input id="mfaCode" name="code" class="ws-code-input" inputmode="numeric" autocomplete="one-time-code" dir="ltr" maxlength="24" required>
+            </label>
+            <div id="mfaError" class="ws-alert ws-alert--error" role="alert" hidden></div>
+            <button class="ws-button ws-button--primary ws-button--block" type="submit">تأیید و ورود</button>
+          </form>
+        </div>
+
+        <div id="resetStep" hidden>
+          <button class="ws-back-button" type="button" data-auth-back>بازگشت</button>
+          <span class="ws-kicker">بازیابی دسترسی</span>
+          <h2>لینک بازیابی دریافت کنید</h2>
+          <p>اگر حسابی با این ایمیل وجود داشته باشد، درخواست بازیابی در صندوق ارسال ثبت می‌شود.</p>
+          <form id="resetRequestForm" class="ws-form">
+            <label>
+              <span>ایمیل</span>
+              <input id="resetEmail" name="email" type="email" autocomplete="email" dir="ltr" required>
+            </label>
+            <div id="resetMessage" class="ws-alert" hidden></div>
+            <button class="ws-button ws-button--primary ws-button--block" type="submit">ثبت درخواست</button>
+          </form>
+        </div>
+
+        <details class="ws-legacy-login">
+          <summary>راه‌اندازی اولیه با رمز مدیر پایه</summary>
+          <p>فقط برای انتقال نسخهٔ قبلی و ساخت نخستین مالک سازمان استفاده شود.</p>
+          <form id="legacyLoginForm" class="ws-form">
+            <label>
+              <span>رمز مدیریت پایه</span>
+              <input id="legacyPassword" name="password" type="password" autocomplete="current-password" minlength="12" required>
+            </label>
+            <div id="legacyLoginError" class="ws-alert ws-alert--error" role="alert" hidden></div>
+            <button class="ws-button ws-button--secondary ws-button--block" type="submit">ادامهٔ راه‌اندازی</button>
+          </form>
+        </details>
+      </div>
+    </section>
+  </main>
+
+  <div id="workspaceView" class="ws-layout" hidden>
+    <div id="sidebarBackdrop" class="ws-backdrop" hidden></div>
+    <aside id="workspaceSidebar" class="ws-sidebar" aria-label="ناوبری فضای کاری">
+      <div class="ws-sidebar__head">
+        <a class="ws-brand" href="/">
+          <svg viewBox="0 0 40 40" aria-hidden="true">
+            <rect x="4" y="4" width="14" height="14" rx="4"></rect>
+            <rect x="22" y="4" width="14" height="14" rx="4"></rect>
+            <rect x="4" y="22" width="14" height="14" rx="4"></rect>
+            <path d="M22 22h5a4 4 0 0 0 4-4v-1h1a4 4 0 0 1 4 4v11a4 4 0 0 1-4 4H22V22Z"></path>
+          </svg>
+          <span><strong>هم‌ساخت</strong><small>فضای کاری</small></span>
+        </a>
+        <button id="closeSidebarButton" class="ws-icon-button ws-sidebar__close" type="button" aria-label="بستن منو">×</button>
+      </div>
+
+      <div class="ws-org-switcher">
+        <label for="organizationSelect">سازمان</label>
+        <select id="organizationSelect" aria-label="انتخاب سازمان"></select>
+      </div>
+
+      <nav id="workspaceNav" class="ws-nav">
+        <span class="ws-nav__label">مدیریت</span>
+        <button type="button" class="is-active" data-view="overview" data-icon="⌂"><span>نمای کلی</span></button>
+        <button type="button" data-view="portfolio" data-icon="◇"><span>سبد پروژه‌ها</span></button>
+        <button type="button" data-view="participation" data-icon="◌"><span>مشارکت‌ها</span><b id="proposalBadge" hidden>۰</b></button>
+
+        <span class="ws-nav__label">اجرای پروژه</span>
+        <button type="button" data-view="execution" data-icon="✓"><span>برنامه و وظایف</span></button>
+        <button type="button" data-view="resources" data-icon="◫"><span>منابع و ظرفیت</span></button>
+        <button type="button" data-view="performance" data-icon="↗"><span>ریسک و شاخص‌ها</span></button>
+
+        <span class="ws-nav__label">سرمایه و کنترل</span>
+        <button type="button" data-view="finance" data-icon="∿"><span>مالی و بودجه</span></button>
+        <button type="button" data-view="capital" data-icon="▦"><span>سهام و سرمایه</span></button>
+        <button type="button" data-view="governance" data-icon="◎"><span>جلسات و تصمیم‌ها</span></button>
+        <button type="button" data-view="compliance" data-icon="⌾"><span>حقوقی و انطباق</span></button>
+
+        <span class="ws-nav__label">دانش و رشد</span>
+        <button type="button" data-view="documents" data-icon="□"><span>اسناد و مدارک</span></button>
+        <button type="button" data-view="marketplace" data-icon="◈"><span>بازار فرصت‌ها</span></button>
+        <button type="button" data-view="reports" data-icon="≡"><span>گزارش و خروجی</span></button>
+        <button type="button" data-view="team" data-icon="◉"><span>اعضا و دسترسی</span></button>
+      </nav>
+
+      <div class="ws-sidebar__foot">
+        <button type="button" data-view="settings" data-icon="⚙"><span>تنظیمات</span></button>
+        <div class="ws-sidebar__user">
+          <span id="sidebarAvatar" aria-hidden="true">ه</span>
+          <div><strong id="sidebarUserName">کاربر</strong><small id="sidebarUserRole">عضو سازمان</small></div>
+        </div>
+      </div>
+    </aside>
+
+    <section class="ws-main">
+      <header class="ws-topbar">
+        <button id="openSidebarButton" class="ws-icon-button ws-menu-button" type="button" aria-label="بازکردن منو">☰</button>
+        <div class="ws-project-switcher">
+          <label for="projectSelect">پروژهٔ جاری</label>
+          <select id="projectSelect"></select>
+        </div>
+        <div class="ws-topbar__actions">
+          <span id="connectionStatus" class="ws-connection"><i></i>متصل</span>
+          <button id="notificationButton" class="ws-icon-button ws-notification-button" type="button" aria-label="اعلان‌ها">
+            <span aria-hidden="true">♢</span><b id="notificationBadge" hidden>۰</b>
+          </button>
+          <button id="profileButton" class="ws-profile-button" type="button" aria-haspopup="menu" aria-expanded="false">
+            <span id="profileAvatar">ه</span>
+            <span class="ws-profile-button__copy"><strong id="profileName">کاربر</strong><small>حساب من</small></span>
+            <span aria-hidden="true">⌄</span>
+          </button>
+        </div>
+        <div id="profileMenu" class="ws-menu" role="menu" hidden>
+          <button type="button" data-view="security" role="menuitem">امنیت حساب</button>
+          <button id="logoutButton" type="button" role="menuitem">خروج</button>
+        </div>
+      </header>
+
+      <main id="workspaceContent" class="ws-content" tabindex="-1">
+        <div class="ws-content__head">
+          <div>
+            <div id="pageBreadcrumb" class="ws-breadcrumb">فضای کاری / نمای کلی</div>
+            <h1 id="pageTitle">نمای کلی</h1>
+            <p id="pageDescription">وضعیت امروز پروژه‌ها، سرمایه و تصمیم‌های در انتظار را ببینید.</p>
+          </div>
+          <div id="pageActions" class="ws-page-actions"></div>
+        </div>
+        <div id="pageAlert" class="ws-alert" role="status" hidden></div>
+        <div id="pageBody" class="ws-page" aria-live="polite" aria-busy="true">
+          <div class="ws-skeleton-grid">
+            <span></span><span></span><span></span><span></span>
+          </div>
+        </div>
+      </main>
+    </section>
+  </div>
+
+  <aside id="notificationDrawer" class="ws-drawer ws-drawer--compact" aria-labelledby="notificationTitle" hidden>
+    <div class="ws-drawer__head">
+      <div><span class="ws-kicker">صندوق شخصی</span><h2 id="notificationTitle">اعلان‌ها</h2></div>
+      <button class="ws-icon-button" type="button" data-close-drawer aria-label="بستن">×</button>
+    </div>
+    <div id="notificationList" class="ws-notification-list"></div>
+    <button id="markAllReadButton" class="ws-button ws-button--secondary ws-button--block" type="button">علامت‌گذاری همه به‌عنوان خوانده‌شده</button>
+  </aside>
+
+  <dialog id="entityDialog" class="ws-dialog">
+    <form id="entityForm" method="dialog">
+      <div class="ws-dialog__head">
+        <div><span id="dialogKicker" class="ws-kicker">ثبت اطلاعات</span><h2 id="dialogTitle">مورد جدید</h2></div>
+        <button class="ws-icon-button" type="button" data-close-dialog aria-label="بستن">×</button>
+      </div>
+      <div id="dialogFields" class="ws-dialog__body ws-form"></div>
+      <div id="dialogError" class="ws-alert ws-alert--error" role="alert" hidden></div>
+      <div class="ws-dialog__actions">
+        <button class="ws-button ws-button--ghost" type="button" data-close-dialog>انصراف</button>
+        <button id="dialogSubmitButton" class="ws-button ws-button--primary" type="submit">ذخیره</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="bootstrapDialog" class="ws-dialog">
+    <form id="bootstrapForm">
+      <div class="ws-dialog__head">
+        <div><span class="ws-kicker">راه‌اندازی یک‌باره</span><h2>ساخت مالک و سازمان</h2></div>
+      </div>
+      <div class="ws-dialog__body ws-form">
+        <div class="ws-field-row">
+          <label><span>نام و نام خانوادگی</span><input name="fullName" required maxlength="120" autocomplete="name"></label>
+          <label><span>نام سازمان</span><input name="organizationName" required maxlength="160" autocomplete="organization"></label>
+        </div>
+        <label><span>ایمیل مالک</span><input name="email" type="email" dir="ltr" required autocomplete="email"></label>
+        <label><span>رمز شخصی جدید</span><input name="password" type="password" required minlength="12" autocomplete="new-password"></label>
+        <p class="ws-form-note">پس از ساخت حساب، رمز مدیر پایه فقط برای بازیابی اضطراری نگه داشته می‌شود و ورود روزمره با حساب شخصی خواهد بود.</p>
+      </div>
+      <div id="bootstrapError" class="ws-alert ws-alert--error" role="alert" hidden></div>
+      <div class="ws-dialog__actions">
+        <button class="ws-button ws-button--primary" type="submit">ساخت فضای کاری</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="/workspace.js"></script>
+</body>
+</html>

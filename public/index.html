@@ -8,6 +8,8 @@
   <meta name="description" content="هم‌ساخت؛ پرتفوی شفاف پروژه‌ها برای مشارکت، سرمایه، عملکرد و حاکمیت قابل پیگیری.">
   <title>هم‌ساخت | پرتفوی شفاف پروژه‌ها</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="preload" href="/assets/fonts/vazirmatn.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -30,6 +32,7 @@
 
       <nav class="main-nav" aria-label="ناوبری اصلی">
         <a id="project-nav-link" href="/projects" data-app-link>پروژه‌ها</a>
+        <a href="/marketplace">بازار فرصت‌ها</a>
         <a href="/my-proposals" data-app-link>
           پیگیری‌های من
           <span id="tracking-count" class="nav-count" hidden></span>
@@ -70,5 +73,6 @@
   </noscript>
 
   <script type="module" src="/app.js"></script>
+  <script type="module" src="/pwa.js"></script>
 </body>
 </html>

@@ -27,5 +27,9 @@ test('initial public assets stay within the compressed budget and avoid unsafe D
   const styles = readFileSync(resolve(root, 'public/styles.css'), 'utf8');
   assert.equal(/\binnerHTML\b/.test(`${app}\n${admin}`), false);
   assert.equal(/<(?:script|link)[^>]+https?:\/\//i.test(index), false);
+  assert.match(
+    index,
+    /<link\s+rel="preload"\s+href="\/assets\/fonts\/vazirmatn\.woff2"\s+as="font"\s+type="font\/woff2"\s+crossorigin>/,
+  );
   assert.match(styles, /font-display:\s*swap/);
 });

@@ -21,6 +21,10 @@ const MIME_TYPES = new Map([
   ['.css', 'text/css; charset=utf-8'],
   ['.js', 'text/javascript; charset=utf-8'],
   ['.json', 'application/json; charset=utf-8'],
+  ['.webmanifest', 'application/manifest+json; charset=utf-8'],
+  ['.csv', 'text/csv; charset=utf-8'],
+  ['.txt', 'text/plain; charset=utf-8'],
+  ['.pdf', 'application/pdf'],
   ['.svg', 'image/svg+xml'],
   ['.png', 'image/png'],
   ['.jpg', 'image/jpeg'],
@@ -32,6 +36,12 @@ const MIME_TYPES = new Map([
 ]);
 
 const COMPRESSIBLE_EXTENSIONS = new Set(['.html', '.css', '.js', '.json', '.svg']);
+const PRIVATE_STATIC_SHELLS = new Set([
+  'admin.html',
+  'workspace.html',
+  'accept-invitation.html',
+  'reset-password.html',
+]);
 
 function acceptedEncoding(header) {
   const weights = new Map();
@@ -97,7 +107,9 @@ export function setSecurityHeaders(response, config, requestId) {
   response.setHeader('X-Request-Id', requestId);
   response.setHeader('X-Content-Type-Options', 'nosniff');
   response.setHeader('X-Frame-Options', 'DENY');
+  response.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
   response.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  response.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
   response.setHeader(
     'Permissions-Policy',
     'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
@@ -204,6 +216,261 @@ export async function readJson(request, limitBytes) {
   return value;
 }
 
+export async function readBinary(request, limitBytes, options = {}) {
+  const length = Number(request.headers['content-length'] || 0);
+  if (Number.isFinite(length) && length > limitBytes) {
+    request.resume();
+    throw new AppError(
+      413,
+      'PAYLOAD_TOO_LARGE',
+      `حجم فایل نباید بیشتر از ${Math.ceil(limitBytes / 1024 / 1024)} مگابایت باشد.`,
+    );
+  }
+  const encoding = String(request.headers['content-encoding'] || 'identity').toLowerCase();
+  if (encoding !== 'identity') {
+    request.resume();
+    throw new AppError(
+      415,
+      'UNSUPPORTED_ENCODING',
+      'فشرده‌سازی بدنهٔ فایل پشتیبانی نمی‌شود.',
+    );
+  }
+  const mimeType = String(request.headers['content-type'] || '')
+    .split(';')[0]
+    .trim()
+    .toLowerCase();
+  if (!mimeType) {
+    request.resume();
+    throw new AppError(415, 'CONTENT_TYPE_REQUIRED', 'نوع فایل مشخص نشده است.');
+  }
+  if (options.allowedTypes && !options.allowedTypes.has(mimeType)) {
+    request.resume();
+    throw new AppError(415, 'UNSUPPORTED_MEDIA_TYPE', 'نوع این فایل مجاز نیست.');
+  }
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > limitBytes) {
+      request.resume();
+      throw new AppError(
+        413,
+        'PAYLOAD_TOO_LARGE',
+        `حجم فایل نباید بیشتر از ${Math.ceil(limitBytes / 1024 / 1024)} مگابایت باشد.`,
+      );
+    }
+    chunks.push(chunk);
+  }
+  if (size === 0) {
+    throw badRequest('EMPTY_FILE', 'فایل خالی قابل بارگذاری نیست.');
+  }
+  const buffer = Buffer.concat(chunks);
+  if (!matchesDeclaredFileType(buffer, mimeType)) {
+    throw new AppError(
+      415,
+      'FILE_SIGNATURE_MISMATCH',
+      'محتوای فایل با نوع اعلام‌شده هم‌خوانی ندارد.',
+    );
+  }
+  return Object.freeze({
+    buffer,
+    mimeType,
+    size,
+    filename: decodeHeaderComponent(
+      request.headers['x-file-name'],
+      'X-File-Name',
+      240,
+    ),
+  });
+}
+
+function zipEntryNames(buffer) {
+  if (buffer.length < 22) return null;
+  const minimum = Math.max(0, buffer.length - 65_557);
+  let eocd = -1;
+  for (let offset = buffer.length - 22; offset >= minimum; offset -= 1) {
+    if (buffer.readUInt32LE(offset) === 0x06054b50) {
+      eocd = offset;
+      break;
+    }
+  }
+  if (eocd < 0 || eocd + 22 > buffer.length) return null;
+  const disk = buffer.readUInt16LE(eocd + 4);
+  const centralDisk = buffer.readUInt16LE(eocd + 6);
+  const diskEntries = buffer.readUInt16LE(eocd + 8);
+  const totalEntries = buffer.readUInt16LE(eocd + 10);
+  const centralSize = buffer.readUInt32LE(eocd + 12);
+  const centralOffset = buffer.readUInt32LE(eocd + 16);
+  const commentLength = buffer.readUInt16LE(eocd + 20);
+  if (
+    disk !== 0 ||
+    centralDisk !== 0 ||
+    diskEntries !== totalEntries ||
+    totalEntries === 0 ||
+    totalEntries > 10_000 ||
+    eocd + 22 + commentLength !== buffer.length ||
+    centralOffset + centralSize > eocd
+  ) return null;
+  const names = new Set();
+  let offset = centralOffset;
+  let totalUncompressedBytes = 0;
+  for (let index = 0; index < totalEntries; index += 1) {
+    if (
+      offset + 46 > buffer.length ||
+      buffer.readUInt32LE(offset) !== 0x02014b50
+    ) return null;
+    const flags = buffer.readUInt16LE(offset + 8);
+    const method = buffer.readUInt16LE(offset + 10);
+    const compressedSize = buffer.readUInt32LE(offset + 20);
+    const uncompressedSize = buffer.readUInt32LE(offset + 24);
+    const filenameLength = buffer.readUInt16LE(offset + 28);
+    const extraLength = buffer.readUInt16LE(offset + 30);
+    const entryCommentLength = buffer.readUInt16LE(offset + 32);
+    const localOffset = buffer.readUInt32LE(offset + 42);
+    const next = offset + 46 + filenameLength + extraLength + entryCommentLength;
+    if (
+      (flags & 0x0001) !== 0 ||
+      ![0, 8].includes(method) ||
+      next > centralOffset + centralSize ||
+      localOffset + 30 > centralOffset ||
+      buffer.readUInt32LE(localOffset) !== 0x04034b50
+    ) return null;
+    const filename = buffer
+      .subarray(offset + 46, offset + 46 + filenameLength)
+      .toString('utf8')
+      .replaceAll('\\', '/');
+    const localFilenameLength = buffer.readUInt16LE(localOffset + 26);
+    const localExtraLength = buffer.readUInt16LE(localOffset + 28);
+    const localFilename = buffer
+      .subarray(localOffset + 30, localOffset + 30 + localFilenameLength)
+      .toString('utf8')
+      .replaceAll('\\', '/');
+    const dataEnd =
+      localOffset + 30 + localFilenameLength + localExtraLength + compressedSize;
+    totalUncompressedBytes += uncompressedSize;
+    if (
+      !filename ||
+      filename !== localFilename ||
+      filename.startsWith('/') ||
+      filename.split('/').includes('..') ||
+      filename.includes('\0') ||
+      names.has(filename) ||
+      dataEnd > centralOffset ||
+      totalUncompressedBytes > 256 * 1024 * 1024
+    ) return null;
+    names.add(filename);
+    offset = next;
+  }
+  return offset === centralOffset + centralSize ? names : null;
+}
+
+export function matchesDeclaredFileType(buffer, mimeType) {
+  if (mimeType === 'application/pdf') {
+    return buffer.subarray(0, 5).toString('ascii') === '%PDF-';
+  }
+  if (mimeType === 'image/jpeg') {
+    return buffer.length >= 3 &&
+      buffer[0] === 0xff &&
+      buffer[1] === 0xd8 &&
+      buffer[2] === 0xff;
+  }
+  if (mimeType === 'image/png') {
+    return buffer.length >= 8 &&
+      buffer.subarray(0, 8).equals(
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      );
+  }
+  if (mimeType === 'image/webp') {
+    return buffer.length >= 12 &&
+      buffer.subarray(0, 4).toString('ascii') === 'RIFF' &&
+      buffer.subarray(8, 12).toString('ascii') === 'WEBP';
+  }
+  if (
+    mimeType ===
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    mimeType ===
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  ) {
+    const entries = zipEntryNames(buffer);
+    if (
+      !entries ||
+      !entries.has('[Content_Types].xml') ||
+      !entries.has('_rels/.rels')
+    ) return false;
+    return mimeType.endsWith('wordprocessingml.document')
+      ? entries.has('word/document.xml')
+      : entries.has('xl/workbook.xml');
+  }
+  if (mimeType === 'application/json') {
+    try {
+      JSON.parse(buffer.toString('utf8'));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  if (mimeType === 'text/plain' || mimeType === 'text/csv') {
+    return !buffer.includes(0);
+  }
+  return true;
+}
+
+export function decodeHeaderComponent(value, name, maximum = 1000) {
+  const raw = String(value || '');
+  // A UTF-8 code point can expand to as many as 12 characters after
+  // percent-encoding (four bytes, each rendered as "%XX").
+  if (raw.length > maximum * 12 + 20) {
+    throw badRequest('INVALID_HEADER_VALUE', `${name} بیش از حد طولانی است.`);
+  }
+  let decoded = raw;
+  if (/%[0-9a-f]{2}/i.test(raw)) {
+    try {
+      decoded = decodeURIComponent(raw);
+    } catch {
+      throw badRequest(
+        'INVALID_HEADER_ENCODING',
+        `${name} باید با UTF-8 و percent-encoding معتبر ارسال شود.`,
+      );
+    }
+  }
+  if (
+    decoded.length > maximum ||
+    /[\u0000-\u001f\u007f]/.test(decoded)
+  ) {
+    throw badRequest('INVALID_HEADER_VALUE', `${name} معتبر نیست.`);
+  }
+  return decoded;
+}
+
+function safeDownloadFilename(value) {
+  const selected = String(value || 'download')
+    .replace(/[\r\n"]/g, '')
+    .replace(/[\\/:*?<>|]/g, '-')
+    .trim()
+    .slice(0, 180);
+  return selected || 'download';
+}
+
+export function sendBuffer(response, status, buffer, options = {}) {
+  if (response.writableEnded) return;
+  const body = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+  response.statusCode = status;
+  response.setHeader('Content-Type', options.contentType || 'application/octet-stream');
+  response.setHeader('Content-Length', String(body.length));
+  response.setHeader('Cache-Control', options.cacheControl || 'private, no-store');
+  if (options.filename) {
+    const filename = safeDownloadFilename(options.filename);
+    response.setHeader(
+      'Content-Disposition',
+      `${options.inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(filename)}`,
+    );
+  }
+  for (const [name, value] of Object.entries(options.headers || {})) {
+    response.setHeader(name, value);
+  }
+  response.end(body);
+}
+
 export function assertSameOrigin(request, config, { required = config.isProduction } = {}) {
   const origin = request.headers.origin;
   if (!origin) {
@@ -221,6 +488,18 @@ export function assertSameOrigin(request, config, { required = config.isProducti
   if (normalized !== config.publicOrigin) {
     throw forbidden('INVALID_ORIGIN', 'این مبدأ اجازه ارسال درخواست ندارد.');
   }
+}
+
+/**
+ * Browser sessions require an exact Origin check in addition to CSRF. Scoped
+ * API keys are intended for server-to-server clients, which normally do not
+ * send an Origin header; their bearer credential is still validated by the
+ * route authorization layer immediately afterwards.
+ */
+export function assertMutationOrigin(request, config) {
+  const authorization = String(request.headers.authorization || '');
+  if (/^Bearer hmk_[A-Za-z0-9_-]{32,200}$/.test(authorization)) return;
+  assertSameOrigin(request, config);
 }
 
 function ipBytes(value) {
@@ -312,6 +591,26 @@ function routeDocument(pathname, publicDir) {
   if (pathname === '/admin') {
     return existsSync(resolve(publicDir, 'admin.html')) ? 'admin.html' : 'index.html';
   }
+  if (pathname === '/workspace') {
+    return existsSync(resolve(publicDir, 'workspace.html'))
+      ? 'workspace.html'
+      : 'admin.html';
+  }
+  if (pathname === '/accept-invitation') {
+    return existsSync(resolve(publicDir, 'accept-invitation.html'))
+      ? 'accept-invitation.html'
+      : 'workspace.html';
+  }
+  if (pathname === '/reset-password') {
+    return existsSync(resolve(publicDir, 'reset-password.html'))
+      ? 'reset-password.html'
+      : 'workspace.html';
+  }
+  if (pathname === '/marketplace') {
+    return existsSync(resolve(publicDir, 'marketplace.html'))
+      ? 'marketplace.html'
+      : 'index.html';
+  }
   if (pathname === '/my-proposals') {
     return existsSync(resolve(publicDir, 'my-proposals.html'))
       ? 'my-proposals.html'
@@ -363,6 +662,7 @@ export async function serveStatic(request, response, url, config) {
   if (!info.isFile()) return false;
   const extension = extname(realFilePath).toLowerCase();
   const isHtml = extension === '.html';
+  const privateShell = PRIVATE_STATIC_SHELLS.has(rawRelative);
   const compressible = COMPRESSIBLE_EXTENSIONS.has(extension);
   const requestedEncoding = compressible
     ? acceptedEncoding(request.headers['accept-encoding'])
@@ -377,7 +677,9 @@ export async function serveStatic(request, response, url, config) {
   response.setHeader('Content-Type', MIME_TYPES.get(extension) || 'application/octet-stream');
   response.setHeader(
     'Cache-Control',
-    isHtml
+    privateShell
+      ? 'no-store'
+      : isHtml || rawRelative === 'sw.js'
       ? 'no-cache'
       : ['.woff2', '.woff', '.png', '.jpg', '.jpeg', '.webp', '.svg'].includes(extension)
         ? 'public, max-age=31536000, immutable'

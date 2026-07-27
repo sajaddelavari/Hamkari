@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0F5C47">
+  <meta name="description" content="بازار فرصت‌های مشارکت، سرمایه‌گذاری، تأمین و تخصص در هم‌ساخت">
+  <title>بازار فرصت‌ها | هم‌ساخت</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/marketplace.css">
+</head>
+<body class="marketplace-page">
+  <a class="skip-link" href="#marketplaceMain">رفتن به محتوای اصلی</a>
+  <header class="market-header">
+    <div class="container market-header__inner">
+      <a class="brand" href="/" aria-label="هم‌ساخت، صفحه اصلی">
+        <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true">
+          <rect x="4" y="4" width="14" height="14" rx="4"></rect>
+          <rect x="22" y="4" width="14" height="14" rx="4"></rect>
+          <rect x="4" y="22" width="14" height="14" rx="4"></rect>
+          <path d="M22 22h5a4 4 0 0 0 4-4v-1h1a4 4 0 0 1 4 4v11a4 4 0 0 1-4 4H22V22Z"></path>
+        </svg>
+        <span class="brand-copy"><strong>هم‌ساخت</strong><small>بازار فرصت‌ها</small></span>
+      </a>
+      <nav aria-label="ناوبری اصلی">
+        <a href="/projects">پروژه‌ها</a>
+        <a href="/workspace" class="market-login">فضای کاری</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="marketplaceMain">
+    <section class="market-hero">
+      <div class="container market-hero__grid">
+        <div>
+          <span class="market-eyebrow">فرصت‌های واقعی و قابل پیگیری</span>
+          <h1>جایی برای پیدا کردن شریک، سرمایه، تأمین‌کننده و متخصص</h1>
+          <p>هر فرصت به یک پروژهٔ شفاف متصل است؛ وضعیت، هدف و مسیر مشارکت را پیش از شروع گفتگو ببینید.</p>
+        </div>
+        <div class="market-hero__mark" aria-hidden="true">
+          <span></span><span></span><span></span><span></span>
+        </div>
+      </div>
+    </section>
+
+    <section class="container market-content">
+      <form id="marketFilters" class="market-filters" role="search">
+        <label class="market-search">
+          <span>جستجو</span>
+          <input id="marketQuery" name="q" type="search" placeholder="عنوان، پروژه یا موضوع…" autocomplete="off">
+        </label>
+        <label>
+          <span>نوع فرصت</span>
+          <select id="marketType" name="type">
+            <option value="">همهٔ فرصت‌ها</option>
+            <option value="collaboration">همکاری</option>
+            <option value="investment">سرمایه‌گذاری</option>
+            <option value="share_offer">عرضهٔ سهم</option>
+            <option value="supplier">تأمین‌کننده</option>
+            <option value="expert">متخصص</option>
+          </select>
+        </label>
+        <label>
+          <span>واحد پول</span>
+          <select id="marketCurrency" name="currency">
+            <option value="">همه</option>
+            <option value="IRR">ریال</option>
+            <option value="USD">دلار</option>
+            <option value="EUR">یورو</option>
+          </select>
+        </label>
+        <button class="market-submit" type="submit">اعمال فیلتر</button>
+      </form>
+
+      <div class="market-result-head">
+        <div>
+          <h2>فرصت‌های منتشرشده</h2>
+          <p id="marketStatus" role="status" aria-live="polite">در حال دریافت فرصت‌ها…</p>
+        </div>
+      </div>
+      <div id="marketError" class="market-error" role="alert" hidden></div>
+      <div id="marketGrid" class="market-grid" aria-busy="true"></div>
+      <div class="market-more">
+        <button id="marketMore" type="button" hidden>نمایش فرصت‌های بیشتر</button>
+      </div>
+    </section>
+  </main>
+
+  <footer class="market-footer">
+    <div class="container">
+      <span>هم‌ساخت؛ زیرساخت شفاف مشارکت و اجرای پروژه</span>
+      <a href="/projects">مشاهدهٔ همهٔ پروژه‌ها</a>
+    </div>
+  </footer>
+  <script type="module" src="/marketplace.js"></script>
+  <script type="module" src="/pwa.js"></script>
+</body>
+</html>

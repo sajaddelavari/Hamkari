@@ -8,26 +8,252 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  backend:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
       - run: npm ci
+      - name: Enforce the zero-runtime-dependency image contract
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const packageJson = JSON.parse(readFileSync('package.json', 'utf8'));
+          const lockfile = JSON.parse(readFileSync('package-lock.json', 'utf8'));
+          const runtimeDependencies = Object.keys(packageJson.dependencies || {});
+          const lockedRuntimeDependencies = Object.keys(
+            lockfile.packages?.['']?.dependencies || {},
+          );
+          if (runtimeDependencies.length || lockedRuntimeDependencies.length) {
+            throw new Error(
+              `Dockerfile assumes zero runtime dependencies; found: ${
+                [...new Set([...runtimeDependencies, ...lockedRuntimeDependencies])].join(', ')
+              }`,
+            );
+          }
+          NODE
       - run: npm run check
       - run: npm run test:backend
+      - run: npm audit --audit-level=high
+
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
-      - name: Resolve Chromium for Lighthouse
-        run: echo "CHROME_PATH=$(node -e 'console.log(require(\"playwright\").chromium.executablePath())')" >> "$GITHUB_ENV"
-      - run: npm run audit:lighthouse
-      - uses: actions/upload-artifact@v4
+      - name: Upload Playwright failure evidence
         if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: playwright-report
-          path: playwright-report
-          if-no-files-found: ignore
+          name: playwright-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            test-results/
+            playwright-report/
+          if-no-files-found: warn
+          retention-days: 7
+
+  lighthouse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run audit:lighthouse
+
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: hamsakht:test
+      - name: Runtime, persistence, backup and restore smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          export COMPOSE_PROJECT_NAME=hamsakht-ci
+          admin_hash="$(
+            docker run --rm \
+              -e ADMIN_PASSWORD=ci-development-admin-password \
+              hamsakht:test npm run --silent hash-password
+          )"
+          cleanup() {
+            docker compose down --volumes --remove-orphans >/dev/null 2>&1 || true
+            rm -f .env
+          }
+          trap cleanup EXIT
+          umask 077
+          printf '%s\n' \
+            'NODE_ENV=production' \
+            'HOST=0.0.0.0' \
+            'PORT=3000' \
+            'HOST_PORT=43178' \
+            'PUBLIC_ORIGIN=https://localhost:43178' \
+            'DATABASE_PATH=/app/data/ci.db' \
+            'DATA_DIR=/app/data' \
+            'BACKUP_DIR=/app/backups' \
+            'SESSION_SECRET=Pd8z7Cu3vwAR9k25mN4TqxY6fJeB2sKL1GHoX5ai' \
+            'AUTH_ENCRYPTION_KEY=ys62QVpFhmA9N8xJc3Kg5Lw4RteZ7BuD1Sd0MXqi' \
+            'AUDIT_HMAC_KEY=bP4kZ7Jm2YdT8HxW3nV6Qa9fC1sL5RgU0EeiKoNA' \
+            'HAMSAKHT_IMAGE=hamsakht:test' \
+            "ADMIN_PASSWORD_HASH='$admin_hash'" > .env
+          docker compose config --quiet
+          docker compose config --format json | node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            const model = JSON.parse(readFileSync(0, "utf8"));
+            const stopGracePeriod = model.services?.hamsakht?.stop_grace_period;
+            if (stopGracePeriod !== "25s") {
+              throw new Error(
+                `Compose stop_grace_period is ${JSON.stringify(stopGracePeriod)}; expected "25s".`,
+              );
+            }
+          '
+          docker compose up --detach --no-build hamsakht
+          container="$(docker compose ps --quiet hamsakht)"
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:43178/healthz >/dev/null; then
+              break
+            fi
+            if [ "$attempt" = 30 ]; then
+              docker logs "$container"
+              exit 1
+            fi
+            sleep 1
+          done
+          test "$(docker exec "$container" id -u)" != "0"
+          test "$(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' "$container")" = "true"
+          docker inspect "$container" | node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            const [container] = JSON.parse(readFileSync(0, "utf8"));
+            const stopTimeout =
+              container?.Config?.StopTimeout ?? container?.HostConfig?.StopTimeout;
+            if (!Number.isInteger(stopTimeout) || stopTimeout < 20) {
+              throw new Error(
+                `Runtime stop timeout is ${JSON.stringify(stopTimeout)}; expected at least 20 seconds.`,
+              );
+            }
+          '
+          test "$(
+            docker inspect --format \
+              '{{(index (index .NetworkSettings.Ports "3000/tcp") 0).HostIp}}' \
+              "$container"
+          )" = "127.0.0.1"
+          docker compose exec -T hamsakht node --input-type=module <<'NODE'
+          import { DatabaseSync } from 'node:sqlite';
+          import { createEnterpriseAudit } from './src/enterprise-audit.js';
+          const db = new DatabaseSync(process.env.DATABASE_PATH);
+          db.exec('PRAGMA busy_timeout=10000');
+          const demoCount = db.prepare(
+            `SELECT COUNT(*) AS count FROM projects WHERE id='greenhouse-20ha'`,
+          ).get().count;
+          if (demoCount !== 0) throw new Error('Production image seeded demo data.');
+          const changed = db.prepare(
+            `UPDATE projects SET title='ci-backup-sentinel' WHERE id='project-room'`,
+          ).run().changes;
+          if (changed !== 1) throw new Error('Production bootstrap sentinel is missing.');
+          const audit = createEnterpriseAudit(db, {
+            hmacKey: process.env.AUDIT_HMAC_KEY,
+          });
+          audit.append({
+            projectId: 'project-room',
+            action: 'ci.restore.backup_sentinel',
+            resourceType: 'ci_restore',
+            resourceId: 'project-room',
+            after: { marker: 'before-backup' },
+          });
+          const verification = audit.verify();
+          if (!verification.valid || verification.checked !== 1) {
+            throw new Error('Pre-backup audit sentinel is invalid.');
+          }
+          db.close();
+          NODE
+          docker compose exec -T hamsakht npm run backup
+          backup_name="$(docker compose exec -T hamsakht sh -c \
+            'ls -1 /app/backups/*.db | sort | tail -n 1 | sed "s#.*/##"')"
+          test -n "$backup_name"
+          docker compose exec -T hamsakht node --input-type=module <<'NODE'
+          import { DatabaseSync } from 'node:sqlite';
+          import { createEnterpriseAudit } from './src/enterprise-audit.js';
+          const db = new DatabaseSync(process.env.DATABASE_PATH);
+          const changed = db.prepare(
+            `UPDATE projects SET title='ci-mutated-after-backup' WHERE id='project-room'`,
+          ).run().changes;
+          if (changed !== 1) throw new Error('Unable to mutate restore sentinel.');
+          createEnterpriseAudit(db, {
+            hmacKey: process.env.AUDIT_HMAC_KEY,
+          }).append({
+            projectId: 'project-room',
+            action: 'ci.restore.post_backup_mutation',
+            resourceType: 'ci_restore',
+            resourceId: 'project-room',
+          });
+          db.close();
+          NODE
+          docker compose stop hamsakht
+          docker compose run --rm --no-deps \
+            -e RESTORE_CONFIRM=I_UNDERSTAND_REPLACE_DATABASE \
+            hamsakht \
+            npm run restore -- "/app/backups/$backup_name"
+          docker compose start hamsakht
+          restored_ready=false
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:43178/healthz >/dev/null; then
+              restored_ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$restored_ready" != "true" ]; then
+            docker compose logs hamsakht
+            exit 1
+          fi
+          docker compose exec -T hamsakht node --input-type=module <<'NODE'
+          import { DatabaseSync } from 'node:sqlite';
+          import { SCHEMA_VERSION } from './src/database.js';
+          import { createEnterpriseAudit } from './src/enterprise-audit.js';
+          const db = new DatabaseSync(process.env.DATABASE_PATH, { readOnly: true });
+          const schemaVersion = db.prepare('PRAGMA user_version').get().user_version;
+          if (schemaVersion !== SCHEMA_VERSION) {
+            throw new Error(`Restored schema ${schemaVersion} != ${SCHEMA_VERSION}.`);
+          }
+          const project = db.prepare(
+            `SELECT title FROM projects WHERE id='project-room'`,
+          ).get();
+          if (project?.title !== 'ci-backup-sentinel') {
+            throw new Error('Restore did not recover the backup sentinel.');
+          }
+          const demoCount = db.prepare(
+            `SELECT COUNT(*) AS count FROM projects WHERE id='greenhouse-20ha'`,
+          ).get().count;
+          if (demoCount !== 0) throw new Error('Restore introduced demo data.');
+          const audit = createEnterpriseAudit(db, {
+            hmacKey: process.env.AUDIT_HMAC_KEY,
+          }).verify();
+          if (!audit.valid || audit.checked !== 1) {
+            throw new Error('Restored audit sentinel is invalid.');
+          }
+          if (db.prepare('PRAGMA foreign_key_check').all().length) {
+            throw new Error('Restored database has foreign-key violations.');
+          }
+          db.close();
+          NODE
