@@ -69,6 +69,8 @@
 - دروازهٔ اجباری مشارکت ۱۰۰٪ و تکمیل همهٔ شروط برای `operating`، جلوگیری از
   دورزدن با ویرایش معمول پروژه، تشخیص `attention_required` هنگام افت شرط و
   توقف بهره‌برداری فقط با نشست تعاملی و ثبت دلیل
+- انتشار SSE تجمیعی و بدون دادهٔ خصوصی پس از تغییر فرایند برای همگام‌سازی
+  زندهٔ اتاق عمومی و داشبورد
 
 ### حسابداری، سود و بازده
 
@@ -161,20 +163,19 @@
 
 ## شواهد کنترل کیفیت
 
-نتایج CI/Lighthouse مربوط به آخرین اجرای سبز
-[GitHub Actions](https://github.com/sajaddelavari/Hamkari/actions/runs/30122804029)
-است. نتایج syntax/backend و سناریوی focused مرورگر در تاریخ این گزارش برای
-revision محلی جدید دوباره اجرا شده‌اند.
+آخرین اجرای همین revision در
+[GitHub Actions](https://github.com/sajaddelavari/Hamkari/actions/runs/30242170490)
+برای commit `b10f4b6` در ۲۰۲۶-۰۷-۲۷ سبز است. چهار gate مستقل backend، browser،
+Lighthouse و container همگی روی کد منتشرشده اجرا و تکمیل شده‌اند.
 Lighthouse با پروفایل رسمی Desktop Dense‑4G، سه اجرای مستقل و نتیجهٔ میانه
 برای Performance/LCP اجرا شده است؛ بیشترین CLS هر سه اجرا کنترل می‌شود:
 
 | کنترل | نتیجه |
 |---|---:|
-| بررسی نحوی JavaScript | ۷۰ فایل موفق در revision جدید |
-| تست‌های backend با `node:test` | ۱۰۴ از ۱۰۴ موفق در revision جدید |
-| سناریوی focused فضای کاری Playwright | assertionهای ۱ از ۱ موفق با Chrome محلی، شامل ۱۷ نما، axe و عرض ۳۹۰px؛ process محلی runner پس از اعلام موفقیت در teardown خاتمه نیافت و با timeout بسته شد |
-| سناریوهای کامل مرورگر Playwright | آخرین اجرای CI: ۱۳ از ۱۳ موفق؛ اجرای کامل برای revision جدید هنوز در CI تکرار نشده است |
-| GitHub Actions | آخرین revision منتشرشده: ۴ از ۴ job موفق؛ revision جدید هنوز push/CI نشده است |
+| بررسی نحوی JavaScript | ۷۰ فایل موفق در CI همین revision |
+| تست‌های backend با `node:test` | ۱۰۴ از ۱۰۴ موفق در CI commit `b10f4b6`؛ ۱۰۵ از ۱۰۵ موفق محلی پس از افزودن پوشش همهٔ انواع قاعده و SSE |
+| سناریوهای کامل مرورگر Playwright | ۱۳ از ۱۳ موفق؛ شامل فضای کاری ۱۷‌نما، axe، موبایل و گردش‌های عمیق محصول |
+| GitHub Actions | ۴ از ۴ job موفق: backend، browser، Lighthouse و container |
 | Lighthouse Performance | ۱۰۰ |
 | Lighthouse Accessibility | ۱۰۰ |
 | Lighthouse Best Practices | ۱۰۰ |
@@ -185,10 +186,10 @@ Lighthouse با پروفایل رسمی Desktop Dense‑4G، سه اجرای م�
 | حجم gzip اولیهٔ CSS/JS/font | `149905` بایت از سقف `150000` |
 | `npm audit` | صفر آسیب‌پذیری گزارش‌شده |
 
-نتایج محلی syntax/backend کیفیت همین revision را نشان می‌دهند؛ اعداد کامل
-browser/Lighthouse/container مربوط به آخرین revision سبز مخزن‌اند تا CI جدید
-اجرا شود. هیچ‌کدام جایگزین load test، penetration test مستقل، ممیزی حقوقی یا
-آزمون disaster recovery روی سرور مقصد نیستند.
+این نتایج کیفیت همین revision منتشرشده را نشان می‌دهند. اعداد جزئی Performance
+از گزارش ثبت‌شدهٔ قبلی حفظ شده‌اند و gate Lighthouse این revision نیز موفق
+است؛ هیچ‌کدام جایگزین load test، penetration test مستقل، ممیزی حقوقی یا آزمون
+disaster recovery روی سرور مقصد نیستند.
 
 ## وضعیت استقرار و اتصال‌های بیرونی
 

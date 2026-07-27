@@ -31,6 +31,27 @@ function requireInteractive(auth) {
   }
 }
 
+function publishProjectUpdate(context, projectId, reason, result) {
+  const project = context.db.prepare(`
+    SELECT slug FROM projects WHERE id=?
+  `).get(projectId);
+  if (!project?.slug) return;
+  context.broker.publish(project.slug, null, {
+    slug: project.slug,
+    projectId,
+    reason,
+    readiness: result?.run
+      ? {
+        status: result.run.effectiveStatus || result.run.status,
+        eligibleToOperate: Boolean(result.eligibleToOperate),
+        participationPercent: result.participation?.percent ?? null,
+        stepsPercent: result.progress?.percent ?? null,
+      }
+      : null,
+    updatedAt: context.now().toISOString(),
+  });
+}
+
 export async function routeReadinessApi(context, authorize) {
   const organizationParts = segments(context.url.pathname, ORGANIZATION_PREFIX);
   const projectParts = segments(context.url.pathname, PROJECT_PREFIX);
@@ -129,7 +150,9 @@ export async function routeReadinessApi(context, authorize) {
         projectId,
         permission: 'project.manage',
       });
-      sendJson(response, 201, store.initialize(projectId, input, actor(auth)));
+      const result = store.initialize(projectId, input, actor(auth));
+      publishProjectUpdate(context, projectId, 'readiness-initialized', result);
+      sendJson(response, 201, result);
       return true;
     }
     if (projectParts.length === 3 && action === 'evaluate' && request.method === 'GET') {
@@ -147,7 +170,9 @@ export async function routeReadinessApi(context, authorize) {
         permission: 'project.manage',
       }, { body: false });
       requireInteractive(auth);
-      sendJson(response, 200, store.activate(projectId, actor(auth)));
+      const result = store.activate(projectId, actor(auth));
+      publishProjectUpdate(context, projectId, 'readiness-activated', result);
+      sendJson(response, 200, result);
       return true;
     }
     if (projectParts.length === 3 && action === 'suspend' && request.method === 'POST') {
@@ -156,7 +181,9 @@ export async function routeReadinessApi(context, authorize) {
         permission: 'project.manage',
       });
       requireInteractive(auth);
-      sendJson(response, 200, store.suspend(projectId, input, actor(auth)));
+      const result = store.suspend(projectId, input, actor(auth));
+      publishProjectUpdate(context, projectId, 'readiness-suspended', result);
+      sendJson(response, 200, result);
       return true;
     }
     if (projectParts.length === 5 && action === 'steps' && request.method === 'POST') {
@@ -165,17 +192,23 @@ export async function routeReadinessApi(context, authorize) {
         permission: 'project.manage',
       });
       if (stepAction === 'submit') {
-        sendJson(response, 200, store.submitStep(projectId, stepId, input, actor(auth)));
+        const result = store.submitStep(projectId, stepId, input, actor(auth));
+        publishProjectUpdate(context, projectId, 'readiness-step-submitted', result);
+        sendJson(response, 200, result);
         return true;
       }
       if (stepAction === 'approve') {
         requireInteractive(auth);
-        sendJson(response, 200, store.approveStep(projectId, stepId, input, actor(auth)));
+        const result = store.approveStep(projectId, stepId, input, actor(auth));
+        publishProjectUpdate(context, projectId, 'readiness-step-approved', result);
+        sendJson(response, 200, result);
         return true;
       }
       if (stepAction === 'reopen') {
         requireInteractive(auth);
-        sendJson(response, 200, store.reopenStep(projectId, stepId, input, actor(auth)));
+        const result = store.reopenStep(projectId, stepId, input, actor(auth));
+        publishProjectUpdate(context, projectId, 'readiness-step-reopened', result);
+        sendJson(response, 200, result);
         return true;
       }
     }
@@ -183,4 +216,3 @@ export async function routeReadinessApi(context, authorize) {
   }
   return false;
 }
-

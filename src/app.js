@@ -390,6 +390,7 @@ export function createApplication(options) {
     identityStore,
     operationsStore,
     enterpriseFinanceStore,
+    readinessStore,
     documentStore,
     hubStore,
     auditService,

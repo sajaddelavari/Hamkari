@@ -355,6 +355,10 @@ POST /api/v2/admin/projects/:projectId/readiness/suspend
   `409 READINESS_TRANSITION_REQUIRED` رد می‌شود.
 - response پروژهٔ عمومی فقط خلاصهٔ تجمیعی آمادگی را دریافت می‌کند؛ پاسخ فرم،
   سند شاهد و تاریخچهٔ داخلی عمومی نمی‌شوند.
+- mutationهای پروژه رویداد SSE با reasonهای `readiness-initialized`،
+  `readiness-step-submitted/approved/reopened`، `readiness-activated` و
+  `readiness-suspended` منتشر می‌کنند. payload فقط وضعیت، درصد مشارکت و درصد
+  مراحل را دارد و پاسخ فرم یا شناسهٔ سند را افشا نمی‌کند.
 
 ### فرم و قواعد مرحله
 

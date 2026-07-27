@@ -164,6 +164,131 @@ test('template changes do not alter an initialized run and direct operating upda
   );
 });
 
+test('document, task, resolution and form rules use live project sources before approval', (t) => {
+  const { db, store, organizationId, actor } = fixture(t);
+  acceptNeed(db, 1);
+  acceptNeed(db, 2);
+  db.prepare(`
+    INSERT INTO project_tasks(id,project_id,title,created_at,updated_at)
+    VALUES('commissioning-task',?,'Commissioning task',?,?)
+  `).run(PROJECT_ID, NOW, NOW);
+  db.prepare(`
+    INSERT INTO documents(
+      id,organization_id,project_id,title,category,status,created_at,updated_at
+    ) VALUES('operating-license',?,?,?,'legal','draft',?,?)
+  `).run(organizationId, PROJECT_ID, 'Operating license', NOW, NOW);
+  db.prepare(`
+    INSERT INTO project_meetings(
+      id,project_id,title,scheduled_at,status,created_at,updated_at
+    ) VALUES('launch-meeting',?,'Launch meeting',?,'held',?,?)
+  `).run(PROJECT_ID, NOW, NOW, NOW);
+  db.prepare(`
+    INSERT INTO meeting_resolutions(
+      id,meeting_id,title,status,created_at,updated_at,result_json
+    ) VALUES('launch-resolution','launch-meeting','Approve launch','open',?,?,?)
+  `).run(NOW, NOW, '{}');
+
+  const template = store.createTemplate(organizationId, {
+    name: 'Evidence-driven commissioning',
+  }, actor).template;
+  const taskTemplateStep = store.createTemplateStep(organizationId, template.id, {
+    title: 'Finish commissioning work',
+    actionType: 'task',
+    position: 1,
+    gateRules: [{ type: 'task_status', taskId: 'commissioning-task' }],
+  }, actor).step;
+  const documentTemplateStep = store.createTemplateStep(organizationId, template.id, {
+    title: 'Attach operating license',
+    actionType: 'document',
+    position: 2,
+    gateRules: [{ type: 'document_exists', category: 'legal' }],
+  }, actor).step;
+  const resolutionTemplateStep = store.createTemplateStep(organizationId, template.id, {
+    title: 'Approve operating launch',
+    actionType: 'resolution',
+    position: 3,
+    gateRules: [{
+      type: 'resolution_approved',
+      resolutionId: 'launch-resolution',
+    }],
+  }, actor).step;
+  const approvalTemplateStep = store.createTemplateStep(organizationId, template.id, {
+    title: 'Verify readiness score',
+    actionType: 'form',
+    position: 4,
+    approvalRequired: true,
+    formSchema: [{
+      key: 'readinessScore',
+      label: 'Readiness score',
+      type: 'number',
+      required: true,
+      min: 0,
+      max: 100,
+    }],
+    gateRules: [{
+      type: 'form_field',
+      fieldKey: 'readinessScore',
+      operator: 'gte',
+      value: 80,
+    }],
+  }, actor).step;
+  const initialized = store.initialize(PROJECT_ID, { templateId: template.id }, actor);
+  const runStep = (templateStep) => initialized.steps.find(
+    (step) => step.templateStepId === templateStep.id,
+  );
+
+  assert.throws(
+    () => store.submitStep(PROJECT_ID, runStep(taskTemplateStep).id, { values: {} }, actor),
+    (error) => error.code === 'READINESS_RULES_FAILED',
+  );
+  db.prepare(`
+    UPDATE project_tasks SET status='done',progress_percent=100,completed_at=?
+    WHERE id='commissioning-task'
+  `).run(NOW);
+  store.submitStep(PROJECT_ID, runStep(taskTemplateStep).id, { values: {} }, actor);
+
+  db.prepare(`
+    INSERT INTO document_versions(
+      id,document_id,version_no,filename,mime_type,size_bytes,sha256,content,created_at
+    ) VALUES('license-v1','operating-license',1,'license.pdf','application/pdf',4,?, ?, ?)
+  `).run('a'.repeat(64), Buffer.from('%PDF'), NOW);
+  db.prepare(`
+    UPDATE documents SET status='active',current_version_no=1 WHERE id='operating-license'
+  `).run();
+  store.submitStep(PROJECT_ID, runStep(documentTemplateStep).id, {
+    values: {},
+    evidenceDocumentId: 'operating-license',
+  }, actor);
+
+  assert.throws(
+    () => store.submitStep(PROJECT_ID, runStep(resolutionTemplateStep).id, { values: {} }, actor),
+    (error) => error.code === 'READINESS_RULES_FAILED',
+  );
+  db.prepare(`
+    UPDATE meeting_resolutions
+    SET status='closed',result_json=?,decided_at=?
+    WHERE id='launch-resolution'
+  `).run(JSON.stringify({ outcome: 'approved', quorum: { quorumMet: true } }), NOW);
+  store.submitStep(PROJECT_ID, runStep(resolutionTemplateStep).id, { values: {} }, actor);
+
+  const submitted = store.submitStep(PROJECT_ID, runStep(approvalTemplateStep).id, {
+    values: { readinessScore: 91 },
+  }, actor);
+  assert.equal(
+    submitted.steps.find((step) => step.templateStepId === approvalTemplateStep.id).status,
+    'submitted',
+  );
+  assert.equal(submitted.eligibleToOperate, false);
+  const approved = store.approveStep(
+    PROJECT_ID,
+    runStep(approvalTemplateStep).id,
+    { note: 'Readiness score independently approved.' },
+    actor,
+  );
+  assert.equal(approved.eligibleToOperate, true);
+  assert.equal(approved.run.effectiveStatus, 'ready');
+});
+
 test('readiness v2 routes enforce session CSRF and expose project-scoped state', async (t) => {
   const application = await startTestApplication({
     applicationOptions: { startWorkers: false },
@@ -196,6 +321,16 @@ test('readiness v2 routes enforce session CSRF and expose project-scoped state',
   });
   assert.equal(result.response.status, 200);
   const headers = { 'X-CSRF-Token': result.data.csrfToken };
+  const readinessEvents = [];
+  const publish = application.application.broker.publish.bind(
+    application.application.broker,
+  );
+  application.application.broker.publish = (slug, event, data) => {
+    if (String(data?.reason || '').startsWith('readiness-')) {
+      readinessEvents.push({ slug, event, data });
+    }
+    return publish(slug, event, data);
+  };
 
   result = await client.request('/api/v2/admin/projects', {
     method: 'POST',
@@ -250,6 +385,10 @@ test('readiness v2 routes enforce session CSRF and expose project-scoped state',
   assert.equal(result.response.status, 201);
   assert.equal(result.data.run.templateName, 'Route template');
   assert.equal(result.data.eligibleToOperate, false);
+  assert.equal(readinessEvents.length, 1);
+  assert.equal(readinessEvents[0].slug, 'readiness-route-project');
+  assert.equal(readinessEvents[0].data.reason, 'readiness-initialized');
+  assert.equal(readinessEvents[0].data.readiness.status, 'in_progress');
 
   result = await client.request(`/api/v2/admin/projects/${projectId}/readiness`);
   assert.equal(result.response.status, 200);
